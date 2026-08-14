@@ -1,0 +1,693 @@
+import os
+import re
+import shutil
+import sqlite3
+import json
+import logging
+from datetime import datetime
+
+logger = logging.getLogger("ChronosCore.GuildRoster")
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+ROSTER_PATH = os.path.join(DATA_DIR, "guild_rpg_roster.db")
+
+# Canonical settings registered at init time.
+DEFAULT_SETTINGS = [
+    {
+        "setting_id": "guild_rpg",
+        "name": "Aelthar Keldor: Guild RPG",
+        "description": "The Guild RPG campaign system: quest boards, adventurer ranks, and the Aelthar Keldor roster.",
+        "default_module": "sandbox_75cp.json",
+        "character_label": "Guild Rank"
+    },
+    {
+        "setting_id": "shota_x_monsters",
+        "name": "Shota x Monsters 2",
+        "description": "The Shota x Monsters 2 BESM 4e expansion: labyrinth taming, monster tiers, and town facilities.",
+        "default_module": "forest_labyrinth_v1.json",
+        "character_label": "Monster Tier"
+    }
+]
+
+def get_roster_connection() -> sqlite3.Connection:
+    """Safely connects to data/guild_rpg_roster.db with standard context manager."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    conn = sqlite3.connect(ROSTER_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_roster_db() -> None:
+    """
+    Sets up the universal setting catalog tables:
+    - settings (setting_id, name, description, default_module, character_label)
+    - characters (setting_id, name, rank_label, race, points_budget, body, mind, soul,
+      acv, dcv, max_hp, max_ep, card_json, source_path, ingested_at)
+    - power_packs (setting_id, character_name, pack_name, source_path)
+    This database is the single source of truth for official character stats across
+    every registered setting; chronos_session.db holds only runtime session state.
+    """
+    with get_roster_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                setting_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                default_module TEXT NOT NULL DEFAULT '',
+                character_label TEXT NOT NULL DEFAULT 'Rank'
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS characters (
+                setting_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                rank_label TEXT NOT NULL DEFAULT 'Unranked',
+                race TEXT NOT NULL DEFAULT 'Unknown',
+                points_budget INTEGER NOT NULL DEFAULT 75,
+                stat_body INTEGER NOT NULL,
+                stat_mind INTEGER NOT NULL,
+                stat_soul INTEGER NOT NULL,
+                acv INTEGER NOT NULL DEFAULT 5,
+                dcv INTEGER NOT NULL DEFAULT 5,
+                max_hp INTEGER NOT NULL,
+                max_ep INTEGER NOT NULL,
+                sixth_guard TEXT NOT NULL DEFAULT '',
+                structural_fault TEXT NOT NULL DEFAULT '',
+                levers TEXT NOT NULL DEFAULT '',
+                card_json TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                ingested_at TEXT NOT NULL,
+                PRIMARY KEY (setting_id, name),
+                FOREIGN KEY (setting_id) REFERENCES settings(setting_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS power_packs (
+                setting_id TEXT NOT NULL,
+                character_name TEXT NOT NULL,
+                pack_name TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                PRIMARY KEY (setting_id, character_name, pack_name),
+                FOREIGN KEY (setting_id, character_name) REFERENCES characters(setting_id, name)
+            )
+        """)
+    migrate_roster_multi_setting()
+    migrate_roster_narrative_syntax()
+    migrate_roster_besa_columns()
+    seed_default_settings()
+    logger.info(f"Guild RPG roster database initialized at {ROSTER_PATH}.")
+
+def migrate_roster_multi_setting() -> None:
+    """
+    One-time migration: the original roster stored characters with `name` as the sole
+    PRIMARY KEY and a hardcoded `guild_rank` column. To support any number of settings,
+    characters are rebuilt with a composite PRIMARY KEY (setting_id, name), `guild_rank`
+    is renamed to `rank_label`, and power_packs gain setting_id. Existing rows are
+    backfilled to the guild_rpg setting. A checkpoint backup is taken first.
+    """
+    if not os.path.exists(ROSTER_PATH):
+        return
+    with sqlite3.connect(ROSTER_PATH) as conn:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()]
+        pks = [r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall() if r[5]]
+        if "guild_rank" not in cols and pks == ["setting_id", "name"]:
+            return
+
+        # Backup before destructive migration.
+        checkpoint_dir = os.path.join(DATA_DIR, "checkpoints")
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = os.path.join(checkpoint_dir, f"roster_pre_multi_setting_{timestamp}.db")
+        shutil.copy2(ROSTER_PATH, backup_path)
+        logger.info(f"Roster migration checkpoint saved to {backup_path}")
+
+        logger.info("Migrating roster to multi-setting schema (composite PK + rank_label).")
+        conn.execute("ALTER TABLE characters RENAME TO characters_old")
+        conn.execute("""
+            CREATE TABLE characters (
+                setting_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                rank_label TEXT NOT NULL DEFAULT 'Unranked',
+                race TEXT NOT NULL DEFAULT 'Unknown',
+                points_budget INTEGER NOT NULL DEFAULT 75,
+                stat_body INTEGER NOT NULL,
+                stat_mind INTEGER NOT NULL,
+                stat_soul INTEGER NOT NULL,
+                acv INTEGER NOT NULL DEFAULT 5,
+                dcv INTEGER NOT NULL DEFAULT 5,
+                max_hp INTEGER NOT NULL,
+                max_ep INTEGER NOT NULL,
+                card_json TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                ingested_at TEXT NOT NULL,
+                PRIMARY KEY (setting_id, name),
+                FOREIGN KEY (setting_id) REFERENCES settings(setting_id)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO characters (
+                setting_id, name, rank_label, race, points_budget, stat_body, stat_mind,
+                stat_soul, acv, dcv, max_hp, max_ep, card_json, source_path, ingested_at
+            )
+            SELECT 'guild_rpg', name, guild_rank, race, points_budget, stat_body, stat_mind,
+                stat_soul, acv, dcv, max_hp, max_ep, card_json, source_path, ingested_at
+            FROM characters_old
+        """)
+        conn.execute("DROP TABLE characters_old")
+
+        # Rebuild power_packs with setting_id.
+        pp_cols = [r[1] for r in conn.execute("PRAGMA table_info(power_packs)").fetchall()]
+        if "setting_id" not in pp_cols:
+            conn.execute("ALTER TABLE power_packs RENAME TO power_packs_old")
+            conn.execute("""
+                CREATE TABLE power_packs (
+                    setting_id TEXT NOT NULL,
+                    character_name TEXT NOT NULL,
+                    pack_name TEXT NOT NULL,
+                    source_path TEXT NOT NULL,
+                    PRIMARY KEY (setting_id, character_name, pack_name),
+                    FOREIGN KEY (setting_id, character_name) REFERENCES characters(setting_id, name)
+                )
+            """)
+            conn.execute("""
+                INSERT INTO power_packs (setting_id, character_name, pack_name, source_path)
+                SELECT 'guild_rpg', character_name, pack_name, source_path FROM power_packs_old
+            """)
+            conn.execute("DROP TABLE power_packs_old")
+
+def migrate_roster_narrative_syntax() -> None:
+    """
+    One-time migration: adds the narrative-syntax framework columns (sixth_guard,
+    structural_fault, levers) to the characters table. These fields encode the
+    Aelthar Keldor narrative syntax (Subject/Predicate, Three Levers, Sixth Guard)
+    so the runtime shell can inject them into the AI Director's context.
+    Non-destructive: existing rows get empty defaults.
+    """
+    if not os.path.exists(ROSTER_PATH):
+        return
+    with sqlite3.connect(ROSTER_PATH) as conn:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()]
+        for column, ddl in [
+            ("sixth_guard", "sixth_guard TEXT NOT NULL DEFAULT ''"),
+            ("structural_fault", "structural_fault TEXT NOT NULL DEFAULT ''"),
+            ("levers", "levers TEXT NOT NULL DEFAULT ''"),
+        ]:
+            if column not in cols:
+                conn.execute(f"ALTER TABLE characters ADD COLUMN {ddl}")
+                logger.info(f"Added narrative-syntax column: characters.{column}")
+    logger.info("Narrative-syntax migration complete.")
+
+def migrate_roster_besa_columns() -> None:
+    """
+    One-time migration: adds BESA rules columns (combat_techniques, skills,
+    defects, shock_value) to the characters table. These fields encode the new
+    BESM 4e rules extraction (Combat Techniques, Skills, Defects, Shock Value)
+    so the runtime shell can inject mechanical constraints into the AI Director's
+    context. Non-destructive: existing rows get safe defaults.
+    """
+    if not os.path.exists(ROSTER_PATH):
+        return
+    with sqlite3.connect(ROSTER_PATH) as conn:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()]
+        for column, ddl in [
+            ("combat_techniques", "combat_techniques TEXT NOT NULL DEFAULT '[]'"),
+            ("skills", "skills TEXT NOT NULL DEFAULT '[]'"),
+            ("defects", "defects TEXT NOT NULL DEFAULT '[]'"),
+            ("shock_value", "shock_value INTEGER NOT NULL DEFAULT 0"),
+            ("md_source_path", "md_source_path TEXT NOT NULL DEFAULT ''"),
+        ]:
+            if column not in cols:
+                conn.execute(f"ALTER TABLE characters ADD COLUMN {ddl}")
+                logger.info(f"Added BESA rules column: characters.{column}")
+    logger.info("BESA rules migration complete.")
+
+
+def compute_shock_value(max_hp: int, combat_techniques: list) -> int:
+    """
+    Compute modified Shock Value from base HP + Hardboiled technique.
+    Base SV = Max HP // 5. Each Hardboiled level adds +10. Capped at 1/2 Max HP.
+    """
+    base_sv = max_hp // 5
+    hardboiled_bonus = sum(
+        10 * t.get("level", 1) for t in combat_techniques
+        if isinstance(t, dict) and t.get("name", "").lower() == "hardboiled"
+    )
+    return min(base_sv + hardboiled_bonus, max_hp // 2)
+
+
+def get_character_loadout(setting_id: str, name: str) -> dict:
+    """
+    Return the full BESA loadout for display in the TUI.
+    Returns empty dict if character not found.
+    """
+    char = get_character(setting_id, name)
+    if not char:
+        return {}
+    return {
+        "name": char["name"],
+        "rank": char["rank_label"],
+        "points_budget": char["points_budget"],
+        "stats": f"B{char['stat_body']} M{char['stat_mind']} S{char['stat_soul']}",
+        "combat": f"ACV{char['acv']} DCV{char['dcv']} HP{char['max_hp']} EP{char['max_ep']}",
+        "shock_value": char.get("shock_value", char["max_hp"] // 5),
+        "combat_techniques": json.loads(char.get("combat_techniques", "[]")),
+        "skills": json.loads(char.get("skills", "[]")),
+        "defects": json.loads(char.get("defects", "[]")),
+        "narrative_syntax": {
+            "structural_fault": char.get("structural_fault", ""),
+            "sixth_guard": char.get("sixth_guard", ""),
+            "levers": char.get("levers", ""),
+        }
+    }
+
+
+def format_loadout_summary(loadout: dict) -> str:
+    """Format a character loadout for the narrative history panel."""
+    lines = []
+    lines.append(f"[bold]{loadout['name']}[/bold] — {loadout['rank']} ({loadout['points_budget']} CP)")
+    lines.append(f"  Stats: {loadout['stats']} | {loadout['combat']}")
+    lines.append(f"  Shock Value: [bold red]{loadout['shock_value']}[/bold red]")
+    lines.append("")
+
+    if loadout["combat_techniques"]:
+        lines.append("  [bold yellow]Combat Techniques:[/bold yellow]")
+        for t in loadout["combat_techniques"]:
+            lines.append(f"    • [cyan]{t['name']}[/cyan] ×{t['level']} — {t['effect']}")
+
+    if loadout["skills"]:
+        lines.append("  [bold yellow]Skills:[/bold yellow]")
+        for s in loadout["skills"]:
+            spec = f" ({s['specialisation']})" if s.get("specialisation") else ""
+            lines.append(f"    • [green]{s['name']}[/green] Rank {s['rank']}{spec} [{s['stat']}]")
+
+    if loadout["defects"]:
+        lines.append("  [bold yellow]Defects:[/bold yellow]")
+        for d in loadout["defects"]:
+            lines.append(f"    • [red]{d['name']}[/red] (Rank {d['rank']}, {d['cp']} CP) — {d['trigger']}")
+
+    ns = loadout.get("narrative_syntax", {})
+    if ns.get("structural_fault"):
+        lines.append("")
+        lines.append("  [bold magenta]Structural Fault:[/bold magenta]")
+        lines.append(f"    {ns['structural_fault'][:120]}...")
+    if ns.get("sixth_guard"):
+        lines.append("  [bold magenta]Sixth Guard:[/bold magenta]")
+        lines.append(f"    {ns['sixth_guard'][:120]}...")
+
+    return "\n".join(lines)
+
+
+def update_character_loadout(setting_id: str, name: str,
+                              techniques: list, skills: list,
+                              defects: list) -> None:
+    """
+    Update BESA rules fields for a character. Idempotent: safe to re-run.
+    shock_value is recomputed from techniques.
+    """
+    char = get_character(setting_id, name)
+    if not char:
+        logger.error(f"Cannot update loadout: character '{name}' not found in [{setting_id}].")
+        return
+    shock = compute_shock_value(char["max_hp"], techniques)
+    with get_roster_connection() as conn:
+        conn.execute("""
+            UPDATE characters
+            SET combat_techniques = ?, skills = ?, defects = ?, shock_value = ?
+            WHERE setting_id = ? AND name = ?
+        """, (
+            json.dumps(techniques),
+            json.dumps(skills),
+            json.dumps(defects),
+            shock,
+            setting_id,
+            name
+        ))
+    logger.info(f"Updated BESA loadout for {name} [{setting_id}] (SV={shock}).")
+
+
+def seed_default_settings() -> None:
+    """Registers the built-in settings (idempotent)."""
+    with get_roster_connection() as conn:
+        for s in DEFAULT_SETTINGS:
+            conn.execute("""
+                INSERT OR IGNORE INTO settings (setting_id, name, description, default_module, character_label)
+                VALUES (?, ?, ?, ?, ?)
+            """, (s["setting_id"], s["name"], s["description"], s["default_module"], s["character_label"]))
+    logger.info("Registered default settings.")
+
+def register_setting(setting_id: str, name: str, description: str = "",
+                     default_module: str = "", character_label: str = "Rank") -> None:
+    """Upserts a custom setting into the catalog."""
+    with get_roster_connection() as conn:
+        conn.execute("""
+            INSERT INTO settings (setting_id, name, description, default_module, character_label)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(setting_id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                default_module = excluded.default_module,
+                character_label = excluded.character_label
+        """, (setting_id, name, description, default_module, character_label))
+    logger.info(f"Registered setting: {setting_id}")
+
+def list_settings() -> list:
+    """Returns all registered settings as a list of dicts."""
+    with get_roster_connection() as conn:
+        rows = conn.execute("SELECT * FROM settings ORDER BY setting_id").fetchall()
+        return [dict(r) for r in rows]
+
+def get_setting(setting_id: str) -> dict | None:
+    """Returns a single setting as a dict, or None."""
+    with get_roster_connection() as conn:
+        row = conn.execute("SELECT * FROM settings WHERE setting_id = ?", (setting_id,)).fetchone()
+        return dict(row) if row else None
+
+def upsert_character(setting_id: str, character: dict, card_json: str, source_path: str) -> None:
+    """
+    Inserts or replaces a canonical character row within a setting. character must include:
+    name, rank_label, race, points_budget, stat_body, stat_mind, stat_soul, acv, dcv, max_hp, max_ep.
+    Optional narrative-syntax fields: sixth_guard, structural_fault, levers.
+    Optional BESA rules fields: combat_techniques, skills, defects, shock_value.
+    """
+    techniques = character.get("combat_techniques", [])
+    skills = character.get("skills", [])
+    defects = character.get("defects", [])
+    shock = character.get("shock_value", compute_shock_value(
+        character.get("max_hp", (character["stat_body"] + character["stat_soul"]) * 5),
+        techniques if isinstance(techniques, list) else []
+    ))
+    with get_roster_connection() as conn:
+        conn.execute("""
+            INSERT INTO characters (
+                setting_id, name, rank_label, race, points_budget, stat_body, stat_mind,
+                stat_soul, acv, dcv, max_hp, max_ep, sixth_guard, structural_fault, levers,
+                combat_techniques, skills, defects, shock_value,
+                card_json, source_path, ingested_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(setting_id, name) DO UPDATE SET
+                rank_label = excluded.rank_label,
+                race = excluded.race,
+                points_budget = excluded.points_budget,
+                stat_body = excluded.stat_body,
+                stat_mind = excluded.stat_mind,
+                stat_soul = excluded.stat_soul,
+                acv = excluded.acv,
+                dcv = excluded.dcv,
+                max_hp = excluded.max_hp,
+                max_ep = excluded.max_ep,
+                sixth_guard = excluded.sixth_guard,
+                structural_fault = excluded.structural_fault,
+                levers = excluded.levers,
+                combat_techniques = excluded.combat_techniques,
+                skills = excluded.skills,
+                defects = excluded.defects,
+                shock_value = excluded.shock_value,
+                card_json = excluded.card_json,
+                source_path = excluded.source_path,
+                ingested_at = excluded.ingested_at
+        """, (
+            setting_id,
+            character["name"],
+            character.get("rank_label", "Unranked"),
+            character.get("race", "Unknown"),
+            character.get("points_budget", 75),
+            character["stat_body"],
+            character["stat_mind"],
+            character["stat_soul"],
+            character.get("acv", 5),
+            character.get("dcv", 5),
+            character.get("max_hp", (character["stat_body"] + character["stat_soul"]) * 5),
+            character.get("max_ep", (character["stat_mind"] + character["stat_soul"]) * 5),
+            character.get("sixth_guard", ""),
+            character.get("structural_fault", ""),
+            character.get("levers", ""),
+            json.dumps(techniques),
+            json.dumps(skills),
+            json.dumps(defects),
+            shock,
+            card_json,
+            source_path,
+            datetime.now().isoformat()
+        ))
+    logger.info(f"Upserted roster character: [{setting_id}] {character['name']} (SV={shock})")
+
+def add_power_pack(setting_id: str, character_name: str, pack_name: str, source_path: str) -> None:
+    """Registers a power pack against a roster character within a setting (idempotent)."""
+    with get_roster_connection() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO power_packs (setting_id, character_name, pack_name, source_path)
+            VALUES (?, ?, ?, ?)
+        """, (setting_id, character_name, pack_name, source_path))
+    logger.info(f"Registered power pack '{pack_name}' for [{setting_id}] {character_name}.")
+
+def get_character(setting_id: str, name: str) -> dict | None:
+    """Returns a single roster character as a dict, or None."""
+    with get_roster_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM characters WHERE setting_id = ? AND name = ?", (setting_id, name)
+        ).fetchone()
+        return dict(row) if row else None
+
+def get_character_power_packs(setting_id: str, name: str) -> list:
+    """Returns the list of registered power packs for a character."""
+    with get_roster_connection() as conn:
+        rows = conn.execute(
+            "SELECT pack_name, source_path FROM power_packs WHERE setting_id = ? AND character_name = ? ORDER BY pack_name",
+            (setting_id, name)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+def list_characters(setting_id: str | None = None, rank_filter: str | None = None) -> list:
+    """Lists all roster characters, optionally filtered by setting and/or rank label."""
+    with get_roster_connection() as conn:
+        if setting_id and rank_filter:
+            rows = conn.execute(
+                "SELECT * FROM characters WHERE setting_id = ? AND rank_label LIKE ? ORDER BY rank_label, name",
+                (setting_id, f"%{rank_filter}%")
+            ).fetchall()
+        elif setting_id:
+            rows = conn.execute(
+                "SELECT * FROM characters WHERE setting_id = ? ORDER BY rank_label, name", (setting_id,)
+            ).fetchall()
+        elif rank_filter:
+            rows = conn.execute(
+                "SELECT * FROM characters WHERE rank_label LIKE ? ORDER BY setting_id, rank_label, name",
+                (f"%{rank_filter}%",)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM characters ORDER BY setting_id, rank_label, name").fetchall()
+        return [dict(r) for r in rows]
+
+def roster_summary(setting_id: str | None = None) -> str:
+    """
+    Human-readable summary of roster characters for the TUI.
+    Header uses the setting's character_label when a setting is specified.
+    """
+    chars = list_characters(setting_id=setting_id)
+    if not chars:
+        if setting_id:
+            return f"No characters registered for setting '{setting_id}'."
+        return "Roster is empty. Run 'auto-ingest' to load character cards."
+    lines = []
+    for c in chars:
+        packs = get_character_power_packs(c["setting_id"], c["name"])
+        pack_str = ", ".join(p["pack_name"] for p in packs) if packs else "None"
+        lines.append(
+            f"  • {c['name']} [{c['rank_label']}] — {c['race']} — "
+            f"Body {c['stat_body']}/Mind {c['stat_mind']}/Soul {c['stat_soul']} "
+            f"({c['points_budget']} CP, ACV {c['acv']}/DCV {c['dcv']}, HP {c['max_hp']}/EP {c['max_ep']}) "
+            f"Packs: {pack_str}"
+        )
+    return "\n".join(lines)
+
+def purge_junk_power_packs() -> int:
+    """
+    Removes junk power-pack rows left by earlier parsers (e.g. the literal
+    "None — ..." prose that a naive [Power Packs] parse registered as a pack).
+    Returns the number of rows removed.
+    """
+    with get_roster_connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM power_packs WHERE pack_name LIKE 'None%' OR pack_name LIKE 'no %'"
+        )
+        removed = cur.rowcount
+    if removed:
+        logger.info(f"Purged {removed} junk power-pack row(s).")
+    return removed
+
+def seed_shota_presets() -> None:
+    """
+    Seeds the Shota x Monsters 2 setting with the campaign module's character
+    presets so the setting has a live roster to expand later. Idempotent.
+    """
+    import json as _json
+    module_path = os.path.join(BASE_DIR, "modules", "forest_labyrinth_v1.json")
+    if not os.path.exists(module_path):
+        logger.warning("forest_labyrinth_v1.json not found; skipping SxM preset seeding.")
+        return
+    with open(module_path, "r", encoding="utf-8") as f:
+        module_data = _json.load(f)
+
+    rank_map = {
+        "Jin": "Monster Tamer (A-Rank Heroic Tier)",
+        "Mayor Ast": "Rival Tamer (C-Rank Mayor)",
+        "Sage Ios": "Sage of Seals (S-Rank Apex)"
+    }
+    for preset in module_data.get("presets", []):
+        name = preset["name"].split(" (")[0]
+        body = preset.get("stat_body", 5)
+        mind = preset.get("stat_mind", 5)
+        soul = preset.get("stat_soul", 5)
+        row = {
+            "name": name,
+            "rank_label": rank_map.get(name, preset["name"]),
+            "race": "Human",
+            "points_budget": module_data.get("points_budget", 50),
+            "stat_body": body,
+            "stat_mind": mind,
+            "stat_soul": soul,
+            "acv": (body + mind + soul) // 3,
+            "dcv": max(1, (body + mind + soul) // 3 - 2),
+            "max_hp": (body + soul) * 5,
+            "max_ep": (mind + soul) * 5
+        }
+        upsert_character("shota_x_monsters", row, _json.dumps(preset), module_path)
+    logger.info("Seeded Shota x Monsters 2 roster presets.")
+
+
+def parse_greetings_from_markdown(md_text: str) -> list:
+    """
+    Extract individual greetings from a character markdown profile.
+    Handles two formats:
+    1. Clean markdown: greetings separated by --- delimiters, starting with *scene*
+    2. SillyTavern card table: greetings in table cells (| First Message, | Alternate Greeting N)
+    Filters out narrative-syntax explanation sections (non-playable).
+    Returns list of dicts with 'scene', 'opening', 'text' keys.
+    """
+    # Detect SillyTavern card table format
+    if '| First Message' in md_text and '| Alternate Greeting' in md_text:
+        return _parse_greetings_sillytavern_table(md_text)
+    return _parse_greetings_clean_markdown(md_text)
+
+
+def _parse_greetings_clean_markdown(md_text: str) -> list:
+    """Parse greetings from clean markdown format (--- separated, *scene* start)."""
+    parts = re.split(r'\n---\n', md_text)
+    greetings = []
+    for part in parts[1:]:  # Skip the profile/description section
+        part = part.strip()
+        if len(part) < 50:
+            continue
+        first_line = part.split('\n')[0].strip()
+        if first_line.startswith('#') or first_line.startswith('$$') or '$$\\text{' in part[:300]:
+            continue
+        if not part.startswith('*'):
+            continue
+        scene_match = re.search(r'\*([^*]{10,})\*', part)
+        scene = scene_match.group(1).strip() if scene_match else ''
+        quotes = re.findall(r'"([^"]+)"', part)
+        opening = quotes[0] if quotes else ''
+        clean = re.sub(r'!\[.*?\]\(.*?\)', '', part)
+        clean = re.sub(r'\n{3,}', '\n\n', clean).strip()
+        greetings.append({'scene': scene, 'opening': opening, 'text': clean})
+    return greetings
+
+
+def _parse_greetings_sillytavern_table(md_text: str) -> list:
+    """Parse greetings from SillyTavern card table format."""
+    lines = md_text.split('\n')
+    greetings = []
+    current = None
+
+    for line in lines:
+        stripped = line.lstrip('|').strip()
+
+        # Detect greeting header rows
+        is_first = 'First Message' in stripped and 'token' in stripped
+        is_alternate_header = stripped == 'Alternate Greetings'
+        is_alternate = stripped.startswith('Alternate Greeting') and '<br>' in stripped
+
+        if is_first:
+            current = {'label': 'First Message', 'scene': '', 'opening': '', 'text': ''}
+            greetings.append(current)
+        elif is_alternate_header:
+            continue  # Skip the header row
+        elif is_alternate:
+            # Content is on the same line after <br><br>
+            label = re.split(r'<br\s*/?>', stripped, maxsplit=1)[0].strip()
+            current = {'label': label, 'scene': '', 'opening': '', 'text': ''}
+            greetings.append(current)
+            # Extract content after the label
+            parts = re.split(r'<br\s*/?>', stripped, maxsplit=2)
+            if len(parts) > 2:
+                text = parts[2]
+                text = re.sub(r'<br\s*/?>', '\n', text)
+                text = re.sub(r'<[^>]+>', '', text)
+                text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+                text = re.sub(r'\n{3,}', '\n\n', text).strip()
+                if text:
+                    current['text'] = text
+        elif current is not None and stripped and not stripped.startswith('---'):
+            # Multi-line greeting content
+            text = re.sub(r'<br\s*/?>', '\n', stripped)
+            text = re.sub(r'<[^>]+>', '', text)
+            text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+            text = re.sub(r'\n{3,}', '\n\n', text).strip()
+            if text:
+                if current['text']:
+                    current['text'] += '\n' + text
+                else:
+                    current['text'] = text
+
+    # Post-process: extract scene and opening from accumulated text
+    for g in greetings:
+        text = g['text']
+        if not text:
+            continue
+        scene_match = re.search(r'\*([^*]{10,})\*', text)
+        g['scene'] = scene_match.group(1).strip() if scene_match else ''
+        quotes = re.findall(r'"([^"]+)"', text)
+        g['opening'] = quotes[0] if quotes else ''
+
+    return [g for g in greetings if g['text']]
+
+
+def get_character_greetings(setting_id: str, name: str) -> list:
+    """
+    Load and parse greetings from the character's canonical markdown file.
+    Uses md_source_path (set during backfill). Falls back to empty list if missing.
+    """
+    char = get_character(setting_id, name)
+    if not char:
+        return []
+    md_path = char.get('md_source_path', '')
+    if not md_path or not os.path.exists(md_path):
+        return []
+    try:
+        with open(md_path, 'r', encoding='utf-8') as f:
+            md_text = f.read()
+        return parse_greetings_from_markdown(md_text)
+    except Exception as e:
+        logger.error(f"Failed to parse greetings for {name}: {e}")
+        return []
+
+
+def set_character_md_path(setting_id: str, name: str, md_path: str) -> None:
+    """Store the canonical markdown file path for a character (idempotent)."""
+    with get_roster_connection() as conn:
+        conn.execute(
+            "UPDATE characters SET md_source_path = ? WHERE setting_id = ? AND name = ?",
+            (md_path, setting_id, name)
+        )
+    logger.info(f"Set md_source_path for {name}: {md_path}")
+
+
+def format_greeting_list(greetings: list) -> str:
+    """Format greeting list for the narrative history panel."""
+    lines = []
+    for i, g in enumerate(greetings):
+        scene = g['scene'][:60] if g['scene'] else '(no scene description)'
+        lines.append(f"  [bold cyan]{i+1}.[/bold cyan] {scene}")
+        if g['opening']:
+            lines.append(f"      [dim]\"{g['opening'][:50]}\"[/dim]")
+    return "\n".join(lines)

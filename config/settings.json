@@ -1,0 +1,6 @@
+{
+  "ACTIVE_MODEL": "gemma4-v2-Q6_K.gguf:latest",
+  "OLLAMA_URL": "http://100.73.250.56:11434/api/generate",
+  "DEFAULT_RULES": "besm_shell",
+  "DEFAULT_SETTING": "guild_rpg"
+}
