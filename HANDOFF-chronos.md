@@ -1,15 +1,25 @@
 ---
 project: digital-dm
-date: 2026-08-13
+date: 2026-08-14
 status: active
 test_count: "0 (compile + live LLM checks only, no formal test suite)"
-git: not-enabled
+git: "local-only, engine code scoped (2026-08-14)"
 ---
 # Chronos Core — Handoff Document
 
-## Current State (2026-08-13)
+## Current State (2026-08-14)
 
-Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sandbox** for the terminal. It pairs a Python-enforced BESM 4e (Tri-Stat System) rules simulation with local-LLM narrative generation via Ollama. V3 shipped on 2026-08-07 with full mechanical enforcement: Combat Techniques, Skills, Defects, and Shock Value are persisted in the roster DB and injected into every LLM shell turn. Two campaign settings are registered (Guild RPG + Shota x Monsters 2) with 11 characters total. The thin client runs the TUI; the big rig runs Ollama inference. No git, no tests, no CI — this is a studio tool.
+Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sandbox** for the terminal. It pairs a Python-enforced BESM 4e (Tri-Stat System) rules simulation with local-LLM narrative generation via Ollama. V3 shipped on 2026-08-07 with full mechanical enforcement: Combat Techniques, Skills, Defects, and Shock Value are persisted in the roster DB and injected into every LLM shell turn. Two campaign settings are registered (Guild RPG + Shota x Monsters 2) with 11 characters total. The thin client runs the TUI; the big rig runs Ollama inference. No tests, no CI — this is a studio tool. Git was initialized 2026-08-14, **scoped to engine code only** — see Operational Notes for exactly what's excluded and why.
+
+## Lineage
+
+*Chronological trail of the proposals and journal entries that built this project — lets a design model trace "how did we get here" without narration.*
+
+| Date | Proposal | Journal | What Shipped |
+|---|---|---|---|
+| 2026-08-07 | — | `2026-08-07-digital-dm-v3-besm-enforcement.md` | V3 — full BESM loadout enforced at runtime (Combat Techniques, Skills, Defects, Shock Value), not just design docs (predates proposal template) |
+| 2026-08-13 | — | `2026-08-13-archiving-universal-dm-engine.md` | BESM source PDFs relocated to `BESM Rules/`; universal-dm-engine (prompt-engineering predecessor) archived (housekeeping, no proposal) |
+| 2026-08-14 | — | `2026-08-14-git-rollout-persona-etl-chronos-core.md` | Git initialized, scoped to engine code only — confidential character data excluded by design (infrastructure work, no proposal) |
 
 ## Architecture Overview
 
@@ -168,7 +178,7 @@ class CharacterSchema(BaseModel):
 ## What Doesn't Work Yet
 
 - **No formal test suite** — compile + live LLM checks only. No `pytest`, no CI.
-- **No git** — by design (private studio content, confidential character data).
+- **Full-project git** — engine code has local-only git (2026-08-14), but confidential character data (`data/`, `staging/`, `modules/`) stays untracked by design. Full-project git deferred to the BESM 4e "universal" rewrite.
 - **No Combat Maneuvers runtime** — `/maneuver` command not wired (designed but not implemented)
 - **No Status Ailments runtime** — poisons, sleep, paralysis defined in rules but not enforced at runtime
 - **No diceless TCR formula** — alternative resolution mode designed but not implemented
@@ -244,7 +254,7 @@ Edit `config/settings.json`:
 
 - **Big rig (100.73.250.56)** runs Ollama with `gemma4-v2-Q6_K.gguf:latest` (11.9B Q6_K, 131K context). Never touched by tooling — Megane handles all big-rig operations.
 - **Thin client (100.114.138.30)** runs the TUI only — no local inference (gemma-heretic 7.5B crashes it).
-- **Git** is not enabled. By design — confidential character data (Nieven's guild record AK-S-009).
+- **Git** is local-only, first commit `2d394ed` (2026-08-14) — **scoped to engine code, not the whole project.** Tracked: `chronos.py`, `launcher.py`, `engine/`, `config/settings.json`, this handoff, `chronos-core-README.md`. Excluded via `.gitignore`: `data/` (roster DBs — confidential character data, incl. Nieven's guild record AK-S-009), `staging/` (processed character profiles), `modules/` (scenario packages that reference named characters in narrative text, e.g. Tomoe), `venv/`, plus 4 session/design docs that log real playthrough content or character-specific planning (`SESSION_RUN_RECORD*.md`, `BACKFILL_PLAN_ROSIVELLE_NARRATIVE_SYNTAX.md`, `ITEMS_ECONOMY_PLAN.md`) and `backfill_besa.py` (has character backstory/psychology hardcoded as string literals). Full-project git-init is deferred until the planned BESM 4e "universal" rewrite replaces the guild-rpg/shota-monsters-specific roster.
 - **venv** is at `chronos-core/venv/` (project-local, not shared). Python is 3.12.3.
 - **Logging** goes to `data/chronos_runtime.log` — not console (TUI protection). This is the one project that uses `logging` module instead of emoji print, by design.
 - **Response times**: ~15-30 seconds per LLM turn on gemma4-v2 Q6_K.
