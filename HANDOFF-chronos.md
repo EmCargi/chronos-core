@@ -2,7 +2,7 @@
 project: digital-dm
 date: 2026-08-16
 status: active
-test_count: 406 (17 dungeon + 27 models + 44 economy + 27 status + 34 physics + 18 modifiers + 27 size-scale + 28 defence + 27 extended + 34 techniques + 38 sanity + 34 defects + 28 social) + 19 card compiler = 425 pass, 1 skip, all runnable (2026-08-18)
+test_count: 406 (17 dungeon + 27 models + 44 economy + 27 status + 34 physics + 18 modifiers + 27 size-scale + 28 defence + 27 extended + 34 techniques + 38 sanity + 34 defects + 28 social) + 19 card compiler + 6 stage cards = 431 pass, 1 skip, all runnable (2026-08-18)
 git: "local-only, engine code scoped (2026-08-14)"
 ---
 # Chronos Core — Handoff Document
@@ -24,6 +24,7 @@ Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sa
 | 2026-08-15 | `proposal/01_BESM_ENGINE_UPGRADE.md` | `2026-08-15-shota-monsters-pipeline-verification.md`, `2026-08-15-shota-database-extraction.md`, `2026-08-15-master-monster-db-import.md`, `2026-08-15-master-db-text-import.md`, `2026-08-15-master-db-catalog-import.md` | **Pipeline scope verified & corrected.** Two game archives reverse-engineered (SxM2 key `0x2DF7B`, SxM1 key `0x0001034A`), 212 `.rvdata2` files extracted. Weebly scraper built (103 SxM1 monsters, 0 failures). **master_monsters.db** — 13 tables, ~12,300 rows, 337 canonical species across both games + skills/dialogue/items/weapons/armors catalogs + 457 besm/ lore files. 5 import scripts. Ruby 3.2.3 installed for future Marshal decoding. |
 | 2026-08-16 | — | `2026-08-16-persona-etl-sxmv2-character-cards.md` | **Bestiary → cards → roster feed, complete.** persona-etl consumed the SxM1 BESM markdown (new `.md` intake + `sxm1-bestiary.md` prompt, big-rig Cydonia-24B) and shipped **339/339 SillyTavern V2 monster-boy cards** (34 batches, 0 failures). These V2 cards are a direct drop-in feed for `batch_ingest` — the Shota setting's roster can balloon from 3 to all 339 species. (Ad-hoc, persona-etl side; no proposal) |
 | 2026-08-18 | — | `2026-08-18-chronos-core-card-to-besm-compiler.md` | **Deterministic card → BESM compiler shipped** (`engine/card_to_besm.py`). Reads the card's markdown Combat Profile HP table (row + column layouts) → tier via the 5-Tier Monster Hierarchy ladder → archetype from Combat Role → stat block (Body/Mind/Soul rank pools 10/12/17/23/30, CP budgets 35/57/82/120/200) → emits the exact `[SYSTEM DATA: BESM 4E MECHANICS]` block METHOD 1 parses. No LLM in the loop. Also: root venv's corrupted `pytest` reinstalled + project-root `conftest.py` added — **the full 425-test suite is green for the first time** (legacy tests could never import `core.ollama`). |
+| 2026-08-18 | — | `2026-08-18-chronos-core-card-staging-first-ingest.md` | **Cards staged + first ingest: Shota roster 3 → 97.** `stage_cards.py` copies statted cards (94/339; the rest are lore-only SxM2) into `staging/raw/` with the compiled SYSTEM DATA block injected, idempotent + atomic. Live `batch_ingest` sweep: **94/94 processed, 0 failed**, DB checkpoint saved, tier spread T1×25 / T2×27 / T3×19 / T4×13 / T5×10. |
 
 ## Architecture Overview
 
@@ -71,6 +72,7 @@ chronos-core/
 | `engine/state_manager.py` | Runtime session DB — vitals, navigation, chronology, checkpoint snapshots | ~285 | — |
 | `engine/batch_ingest.py` | Character card importer — staging/raw/ → setting detection → roster DB → processed/failed/ | ~308 | — |
 | `engine/card_to_besm.py` | **Deterministic SxM card → BESM compiler** — HP table → tier → archetype → stat block → `[SYSTEM DATA: BESM 4E MECHANICS]` block for METHOD 1 | ~350 | — |
+| `stage_cards.py` | **Staging prep** — copies statted cards from corpus into `staging/raw/` with SYSTEM DATA block injected; skips lore-only cards; idempotent atomic writes | ~130 | — |
 | `conftest.py` | Pytest root bootstrap — puts `dev/` + `chronos-core/` on sys.path so `core.ollama` imports | ~12 | — |
 | `engine/char_wizard.py` | Interactive character creator — CP-budget checks, stat allocation, LLM-assisted | ~192 | — |
 | `engine/models.py` | Pydantic v2 CharacterSchema (Tri-Stat + BESM fields + derived vitals) + action/shock/incapacitation/poison checks | ~170 | — |
@@ -89,6 +91,7 @@ chronos-core/
 | `engine/verify_dungeon.py` | Campaign module validator — 5-room structure + obstacle key checks | ~58 | — |
 | `tests/test_verify_dungeon.py` | Validator tests (17: valid modules, room detection, required-check, file errors) | ~195 | 17 |
 | `tests/test_card_to_besm.py` | Card compiler tests (19: HP row/col tables, tier brackets, archetypes, stat alloc, ACV, SYSTEM DATA contract) | ~200 | 19 |
+| `tests/test_stage_cards.py` | Staging prep tests (6: discovery, idempotent injection, statted vs lore-only screening, real-corpus 94 check) | ~80 | 6 |
 | `engine/__init__.py` | Package exports | ~30 | — |
 | **`engine/prompts/`** | | | |
 | `besm_shell.md` | LLM shell prompt (8 sections, 8 directives — includes BESM enforcement) | ~3,587 chars | — |
@@ -169,7 +172,7 @@ class CharacterSchema(BaseModel):
 | Source | Count | Location |
 |---|---|---|
 | Guild RPG characters | 8 (Eira, Rosivelle, Sylvara, Aglae, Tomoe, Liora, Nieven, Zarlen) | `data/guild_rpg_roster.db` |
-| Shota x Monsters characters | 3 (Jin, Mayor Ast, Sage Ios) — **card corpus ready to ingest: 339/339 SillyTavern V2 cards** | `data/guild_rpg_roster.db` / `persona-etl/output/` |
+| Shota x Monsters characters | 97 (3 named + 94 ingested monster-boys from the 339-card corpus; **245 lore-only cards wait for SxM2 stats**) | `data/guild_rpg_roster.db` / `persona-etl/output/` |
 | Campaign modules | 6 (sandbox, C-rank trial, 5-room dungeon, forest labyrinth, training yard, Tomoe volcano) | `modules/` |
 | Item catalog (seeded) | 8 (healing salves, energy drafts, standard potions, etc.) | `data/guild_rpg_roster.db` |
 | BESM rules reference files | 15 cheat sheets (~260 KB) + 2 source PDFs (53 MB) | `digital-dm-project/BESM Rules/` (local) |
@@ -195,15 +198,15 @@ class CharacterSchema(BaseModel):
 - Checkpoint snapshots (pre-migration DB backup)
 - `py_compile` clean on all files
 - Live LLM tests: Rosivelle (Phobia: mice), Eira (Compassion Override), Tomoe (Vengeance Singularity), Liora (Perimeter Breach) — all enforced correctly
-- **Deterministic card → BESM compiler (2026-08-18)** — `engine/card_to_besm.py` turns the post-08-16 card batch into METHOD 1 SYSTEM DATA blocks with zero LLM calls (HP→tier→archetype→stat block). Verified by 19 contract tests.
-- **Full test suite runnable (2026-08-18)** — root venv's corrupted pytest reinstalled + `conftest.py` bootstrap; **425 passed, 1 skipped** for the first time (legacy suites previously couldn't import `core.ollama`).
+- **Deterministic card → BESM compiler + first ingest (2026-08-18)** — `engine/card_to_besm.py` turns statted cards into METHOD 1 SYSTEM DATA blocks with zero LLM calls; `stage_cards.py` staged the 94 statted cards and a live sweep ingested **94/94 → Shota roster 3 → 97** (T1×25 / T2×27 / T3×19 / T4×13 / T5×10). Verified by 25 contract tests.
+- **Full test suite runnable (2026-08-18)** — root venv's corrupted pytest reinstalled + `conftest.py` bootstrap; **431 passed, 1 skipped** for the first time (legacy suites previously couldn't import `core.ollama`).
 
 ## What Doesn't Work Yet
 
-- **Test suite at 425 tests (all runnable as of 2026-08-18)** — covering verify_dungeon, models, economy, status effects, combat physics, modifiers, size/scale, defence absorption, extended actions, combat techniques, sanity/recovery, defects, social combat, and the new card compiler. **Still no tests for roster CRUD or batch_ingest** (`test_guild_roster.py`, `test_batch_ingest.py` not yet written).
+- **Test suite at 431 tests (all runnable as of 2026-08-18)** — covering verify_dungeon, models, economy, status effects, combat physics, modifiers, size/scale, defence absorption, extended actions, combat techniques, sanity/recovery, defects, social combat, the card compiler, and stage_cards. **Still no tests for roster CRUD or batch_ingest** (`test_guild_roster.py`, `test_batch_ingest.py` not yet written).
 - **Full-project git** — engine code has local-only git (2026-08-14), but confidential character data (`data/`, `staging/`, `modules/`) stays untracked by design. Full-project git deferred to the BESM 4e "universal" rewrite.
 - **No Combat Maneuvers runtime** — `/maneuver` command not wired (designed but not implemented)
-- **BESM mechanics engine shipped + TUI wired** — 425 tests. Engine math now exposed via `/` commands in the dashboard: `/shock`, `/resist`, `/fall`, `/range`, `/size`, `/defence`, `/scv`, `/sanity`, `/recover`, `/techniques`, `/defects`, `/engine`. Type `/engine` for the full list in-session.
+- **BESM mechanics engine shipped + TUI wired** — 431 tests. Engine math now exposed via `/` commands in the dashboard: `/shock`, `/resist`, `/fall`, `/range`, `/size`, `/defence`, `/scv`, `/sanity`, `/recover`, `/techniques`, `/defects`, `/engine`. Type `/engine` for the full list in-session.
 - **No diceless TCR formula** — alternative resolution mode designed but not implemented
 - **Thin client can't run inference** — all LLM-dependent testing requires big rig Ollama
 - **Nieven's narrative syntax needs tuning** — flagged for extended live play
@@ -213,7 +216,7 @@ class CharacterSchema(BaseModel):
 
 | Friction | Impact | Fix Effort |
 |---|---|---|
-| ~~No automated tests~~ (partial) | ~~BESM functions, economy math had no regression protection~~ | **425 tests across 14 suites** — roster CRUD and batch_ingest remain untested |
+| ~~No automated tests~~ (partial) | ~~BESM functions, economy math had no regression protection~~ | **431 tests across 15 suites** — roster CRUD and batch_ingest remain untested |
 | ~~Big rig was the only inference node~~ | ~~Can't test LLM-dependent features on thin client~~ | **Fixed 2026-08-14** — fallback chain now hops to thin client (deepseek-r1:7b) when big rig is down. Degraded narrator > dead TUI. |
 | Nieven's data is confidential | Sourced from guild record AK-S-009, not for external sharing | By design — studio content |
 | ~~No reasoning-tag stripping~~ | ~~Reasoning tags could pollute narrative~~ | **Fixed 2026-08-14** — `engine/llm_bridge.py` now calls `strip_reasoning_tags()` (from `dev/core/reasoning.py`) in `dispatch_ollama_turn()` |
@@ -297,7 +300,7 @@ Chronos Core is the engine inside the **digital-dm-project**, which unifies:
 
 ## Next Session Priorities
 
-1. ~~**Add a pytest suite**~~ → **425 tests across 14 suites.** Remaining coverage gaps: `test_guild_roster.py` (CRUD + BESM loadout) and `test_batch_ingest.py` (card parsing).
+1. ~~**Add a pytest suite**~~ → **431 tests across 15 suites.** Remaining coverage gaps: `test_guild_roster.py` (CRUD + BESM loadout) and `test_batch_ingest.py` (card parsing).
 2. **Wire Combat Maneuvers** — `/maneuver` command (tactical stances, called shots, grappling, multi-target)
 3. **Wire Status Ailments** — poisons, sleep, paralysis, mind control at runtime
 4. **Implement diceless TCR formula** — alternative resolution mode (deterministic, no dice)
@@ -305,9 +308,9 @@ Chronos Core is the engine inside the **digital-dm-project**, which unifies:
 6. ~~**Archive `backfill_besm.py`**~~ ✅ Done 2026-08-14 — moved to `dev/archive/chronos-core/backfill_besm.py`
 7. **Tune Nieven's narrative syntax** — needs extended live play
 8. **Apply Item CP pricing** to shop catalog refinement
-9. **Ingest the monster cards (big opportunity)** — persona-etl (08-16) shipped **all 339 SillyTavern V2 monster-boy cards** from the SxM1 bestiary (`persona-etl/output/`, catalog complete). Drop them in `staging/raw/` and run `auto-ingest` to balloon the Shota setting's roster from 3 to all 339 species. **As of 2026-08-18 the deterministic `engine/card_to_besm.py` emits the METHOD 1 SYSTEM DATA block straight from the card's markdown Combat Profile — next step is a staging prep script that copies cards + injects that block before `batch_ingest` runs.**
+9. ~~**Ingest the monster cards (big opportunity)**~~ → **Shipped 2026-08-18.** `stage_cards.py` staged the 94 statted cards; live sweep ingested 94/94. Shota roster **3 → 97**. The 245 lore-only cards will flow in once SxM2 stats are decoded — just re-run `stage_cards.py`.
 10. **Promote to big rig** — once stable, Megane handles the copy
 
 ---
 
-*Handoff updated 2026-08-18. Chronos Core v3 — the BESM 4e rules engine. 425 tests, local-only engine-scoped git. The Shota×Monsters data layer reached v1.2, and the card→BESM compiler now bridges the 339-card corpus to METHOD 1 deterministically — no LLM guesswork. The LLM narrates; Python enforces. The Sixth Guard is not a suggestion.*
+*Handoff updated 2026-08-18. Chronos Core v3 — the BESM 4e rules engine. 431 tests, local-only engine-scoped git. The card→BESM compiler + staging bridge took the Shota roster 3 → 97 in one sweep — 94/94 ingested, zero fabricated lore-only rows. The LLM narrates; Python enforces. The Sixth Guard is not a suggestion.*
