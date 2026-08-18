@@ -195,6 +195,162 @@ def check_poison_resistance(character, blight_level: int = 1) -> dict:
     return result
 
 
+# ── status ailments (Extras ledger: delivery vectors, decay, cognitive) ──
+
+POISON_VECTORS = {
+    "injury":   {"armour_blocked": True,  "ingested_multiplier": 1.0, "note": "blocked by AR/Force Field absorbing all damage"},
+    "contact":  {"armour_blocked": False, "ingested_multiplier": 1.0, "note": "ignores AR unless airtight full-body coverage"},
+    "ingested": {"armour_blocked": False, "ingested_multiplier": 2.0, "note": "damage doubled on ingestion"},
+    "inhaled":  {"armour_blocked": False, "ingested_multiplier": 1.0, "note": "area effect; gas masks/airtight grant immunity"},
+}
+
+# Continuing-decay survival checks: hourly → Major Obstacle, daily → Minor
+DECAY_CHECK_TN = 15
+
+
+def resolve_poison_delivery(vector: str, damage: int,
+                            target_ar: int = 0, force_field: int = 0,
+                            has_gas_mask: bool = False) -> dict:
+    """Resolve a poison's delivery vector (Extras pp.259-261).
+
+    Returns whether the poison got through, the damage actually applied (raw
+    × 2 for ingested), and the immunity/blocking rationale."""
+    spec = POISON_VECTORS.get(vector.lower())
+    if not spec:
+        return {"valid": False, "reason": f"unknown vector '{vector}'",
+                "applies": False, "damage": 0}
+    if vector == "injury" and (target_ar >= damage or force_field >= damage):
+        return {"valid": True, "applies": False, "damage": 0,
+                "reason": "armour/force field absorbed the full blow"}
+    if vector == "inhaled" and has_gas_mask:
+        return {"valid": True, "applies": False, "damage": 0,
+                "reason": "gas mask / airtight immunity"}
+    applied = int(damage * spec["ingested_multiplier"])
+    return {"valid": True, "applies": True, "damage": applied,
+            "reason": spec["note"]}
+
+
+def continuing_poison_tick(original_damage: int, assignments: int) -> dict:
+    """Continuing Enhancement tick: at end of each round, victim loses
+    20% of the original damage. Lasts 1 round per assignment. AR gives zero
+    protection against the recurring damage."""
+    return {
+        "tick_damage": max(1, original_damage // 5),
+        "rounds_remaining_after_tick": max(0, assignments - 1),
+        "armour_protected": False,
+    }
+
+
+def decay_survival_check(stat_body: int, interval: str) -> dict:
+    """Slow-acting poison/disease survival check: TN 15 Body roll with an
+    obstacle per interval — hourly → Major Obstacle, daily → Minor."""
+    major = interval == "hourly"
+    minor = interval == "daily"
+    return resistance_check(stat_body, DECAY_CHECK_TN,
+                            minor_obstacle=minor, major_obstacle=major)
+
+
+def treat_poison(healer_stat: int, skill_rank: int, blight_level: int = 1) -> dict:
+    """Field treatment: healer rolls a Skill Check vs the poison's Blight TN
+    (12/15/18). Success neutralizes the toxin and stops continuing ticks."""
+    target = POISON_TARGETS.get(blight_level, 12)
+    result = execute_action_check(healer_stat, skill_rank, target)
+    result["blight_level"] = blight_level
+    result["neutralized"] = result["success"]
+    return result
+
+
+def sleep_state_breaks(ailment: str, damage_taken: bool = False,
+                       loud_noise: bool = False) -> dict:
+    """Interruption rules (Extras p.242, 652): Sleep breaks on loud noise or
+    damage; Paralysis and Stone cannot be broken early (magic only)."""
+    key = ailment.lower()
+    if key in ("paralyzed", "paralysis", "stone", "petrified"):
+        return {"breakable": False, "broken": False, "reason": "magic only (Lesser Restoration / Halidom / Exorcism)"}
+    if key in ("sleep", "asleep", "sleeping"):
+        broken = damage_taken or loud_noise
+        return {"breakable": True, "broken": broken,
+                "reason": None if broken else "needs loud noise or physical damage"}
+    return {"breakable": False, "broken": False, "reason": f"unknown ailment '{ailment}'"}
+
+
+def stun_recovery_per_hour(character) -> int:
+    """Stun damage recovery: Body Stat every hour (vs standard daily rate).
+    Cannot kill — unconscious at 0 HP from stun, never dead by stun damage."""
+    return character.stat_body
+
+
+# ── mind control & cognitive subversion (Extras pp.560-567) ─────────────
+
+CONTROL_GRADIENT = {
+    1: "basic non-aggressive suggestions",
+    2: "simple non-aggressive tasks",
+    3: "complex non-aggressive routing",
+    4: "aggressive commands",
+    5: "erase brief recent memories",
+    6: "rewrite complex long-term memories",
+}
+
+
+def mind_control_gradient(level: int) -> str:
+    """Label the severity of a successful Mind Control by Attribute Level."""
+    return CONTROL_GRADIENT.get(level, f"unknown level {level}")
+
+
+def mind_control_resistance(defender_mind: int, defender_soul: int,
+                            controller_mind: int, mc_level: int,
+                            mind_shield_level: int = 0) -> dict:
+    """Opposed Mind/Soul break check: defender rolls higher-of Mind/Soul +
+    Mind Shield (×2 per level) vs controller's Mind + MC Level. Winner = whole
+    contest. 3 successive failures → immune to that caster for 24h (caller).
+    """
+    defender_stat = max(defender_mind, defender_soul)
+    defender_total = defender_stat + 2 * mind_shield_level
+    controller_total = controller_mind + mc_level
+    if defender_total >= controller_total:
+        winner = "defender"
+        break_success = True
+    else:
+        winner = "controller"
+        break_success = False
+    return {
+        "winner": winner,
+        "break_success": break_success,
+        "defender_total": defender_total,
+        "controller_total": controller_total,
+        "defender_stat": defender_stat,
+        "mind_shield_level": mind_shield_level,
+    }
+
+
+def against_nature_break_check(edict: str) -> int:
+    """Break clause (Extras pp.561-562): target's Stat check to break control
+    gains an Edge depending on how distasteful the command is.
+    Returns edge weight: 0=none, 1=minor, 2=major."""
+    key = edict.lower()
+    if "lethal" in key or "loved one" in key or "harm self" in key:
+        return 2
+    if "humiliat" in key or "distasteful" in key or "against code" in key:
+        return 1
+    return 0
+
+
+def exorcism_clash(exorcist_soul: int, exorcism_level: int,
+                   controller_soul: int, mc_level: int) -> dict:
+    """Exorcism Attribute clash (p.516): (Soul + 2×Exorcism) vs
+    (Controller Soul + MC Level). Success shatters control; failure alerts the
+    controller."""
+    exorcist_total = exorcist_soul + 2 * exorcism_level
+    controller_total = controller_soul + mc_level
+    success = exorcist_total >= controller_total
+    return {
+        "success": success,
+        "exorcist_total": exorcist_total,
+        "controller_total": controller_total,
+        "controller_alerted": not success,
+    }
+
+
 # ── wound penalties ──────────────────────────────────────────────────────
 
 def wound_obstacle(character) -> str | None:

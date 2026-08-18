@@ -2,7 +2,7 @@
 project: digital-dm
 date: 2026-08-16
 status: active
-test_count: 548 total (17 verify_dungeon + 27 models + 44 economy + 28 status_effects + 34 combat_physics + 18 combat_modifiers + 27 size_scale + 28 defence_absorption + 27 extended_actions + 34 combat_techniques + 24 bond_progression + 38 sanity_recovery + 34 defects + 27 social_combat + 32 diceless + 46 combat_maneuvers + 19 card_to_besm + 6 stage_cards + 28 guild_roster + 10 batch_ingest) = 547 pass, 1 skip, all runnable (2026-08-18)
+test_count: 584 total (17 verify_dungeon + 27 models + 44 economy + 28 status_effects + 36 status_ailments + 34 combat_physics + 18 combat_modifiers + 27 size_scale + 28 defence_absorption + 27 extended_actions + 34 combat_techniques + 24 bond_progression + 38 sanity_recovery + 34 defects + 27 social_combat + 32 diceless + 46 combat_maneuvers + 19 card_to_besm + 6 stage_cards + 28 guild_roster + 10 batch_ingest) = 583 pass, 1 skip, all runnable (2026-08-18)
 git: "local-only, engine code scoped (2026-08-14)"
 ---
 # Chronos Core — Handoff Document
@@ -30,6 +30,7 @@ Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sa
 | 2026-08-18 | — | `2026-08-18-chronos-core-bond-progression-backfill.md` | **Bond Progression Framework V2.0 documented** — the framework in `engine/models.py` (4 phases, 7 gains, 4 losses, Shared Triumph / Favoritism Tax / group stats) and its 24-test suite were untracked and untallied until the git alignment. Now: file-map row, What Works bullet, journal entry — the true 470-test state is fully on the record. |
 | 2026-08-18 | — | `2026-08-18-chronos-core-diceless-tcr.md` | **Diceless BESM shipped** (`engine/models.py`) — `compute_tcr()` implements Extras Ch.9 Total Combat Roll with per-term rounding, `resolve_diceless_combat()` maps MoS to Table-15 bands, `hedged_check()` gives the auto-7 non-combat path. 32 tests incl. the Kozoh/Azok canonical example (19 vs 17 → Slight Success). |
 | 2026-08-18 | — | `2026-08-18-chronos-core-combat-maneuvers.md` | **Combat Maneuvers arsenal shipped** (`engine/models.py`) — tactical stances (one per round: aim/wait escalate minor→major; total defence halts attacks), the full called-shot table, two-weapon attacks, strike-to-wound, touch attacks, the grapple/pin/escape state machine, and multi-target dispersion. 46 tests grounded in the Extras cheat sheet. |
+| 2026-08-18 | — | `2026-08-18-chronos-core-status-ailments.md` | **Status Ailments completed** (`engine/models.py`) — poison delivery vectors (injury/contact/ingested/inhaled with AR vs airtight/mask immunity, ingested ×2), continuing-decay ticks, field treatment vs Blight TN, sleep-break vs magic-only paralysis/stone, stun recovery at Body/hour, and the mind-control stack (gradient L1-6, opposed break + Mind Shield, against-nature edges, Exorcism clash). 36 tests. |
 
 ## Architecture Overview
 
@@ -82,7 +83,8 @@ chronos-core/
 | `engine/char_wizard.py` | Interactive character creator — CP-budget checks, stat allocation, LLM-assisted | ~192 | — |
 | `engine/models.py` | Pydantic v2 CharacterSchema (Tri-Stat + BESM fields + derived vitals) + action/shock/incapacitation/poison checks | ~170 | — |
 | `tests/test_models.py` | Model tests (27: schema validation, tri-stat vitals, SV caps, action checks) | ~210 | 27 |
-| `tests/test_status_effects.py` | Status tests (27: obstacle dice, shock/knockout, incapacitation, poison resistance) | ~200 | 27 |
+| `tests/test_status_effects.py` | Status tests (27: obstacle dice, shock/knockout, incapacitation, poison resistance) | ~200 | 28 |
+| `tests/test_status_ailments.py` | Status ailment tests (36: poison vectors, continuing ticks, decay survival, field treatment, sleep-break vs paralysis/stone, stun recovery, mind-control gradient + break + exorcism) | ~250 | 36 |
 | `tests/test_combat_physics.py` | Combat physics tests (34: edge dice, wound penalties, falling damage, range bands) | ~190 | 34 |
 | `tests/test_combat_modifiers.py` | Modifier stack tests (18: cancellation, compounding, spillover, combat resolution) | ~140 | 18 |
 | `tests/test_size_scale.py` | Size/scale tests (27: grid integrity, strength, AR, ranged mod, knockback, collapse) | ~160 | 27 |
@@ -214,10 +216,11 @@ class CharacterSchema(BaseModel):
 - **Bond Progression Framework V2.0 shipped inside `engine/models.py` (2026-08-18)** — trust scores (0–100) clamp to 4 phases (Surface → Warmth → Confidant → Soulbound); 7 gain triggers (5–10 pts, intimacy once-per-phase) and 4 loss triggers (−15 to −50); Shared Triumph (+10 hero / +5 witnesses) and Favoritism Tax (−10 neglected NPCs). Backfilled from git housekeeping: `tests/test_bond_progression.py` (24) documents it — was untracked and untallied until the alignment pass.
 - **Diceless BESM resolution (2026-08-18)** — `compute_tcr()` implements Extras Ch.9's Total Combat Roll (CV + ⌊dmg/10⌋ + ⌊HP/20⌋ + 2×ExtraActions + Mulligans + ⌊EP/10⌋ + edge − ⌊AR/10⌋ − 2×ExtraDefences − obstacle, every term rounded down); `resolve_diceless_combat()` maps MoS to Table-15 outcome bands with HP-loss percentages; `hedged_check()` handles non-combat via the auto-7 baseline (BESM4 p182). Deterministic, zero roll calls.
 - **Combat Maneuvers arsenal (2026-08-18)** — tactical stances (aim → ranged minor/major edge by consecutive round; wait-for-opening melee analog; total defence = major defence edge, attacks off), the full called-shot table (disarm melee/ranged with TN 15 Body check, reduce/bypass armour, vital spot ×2, weak points with defender edges), two-weapon attacks (single/minor, two/major, negated by Two Weapons technique), strike-to-wound, touch attacks, the full grapple/pin/escape state machine (free-hand edges, size overload, paralysis, pain-dissociation escape at 5×Body), and multi-target dispersion (N-target obstacle + defender edge curve). All 46 tested, grounded in the Extras cheat sheet.
+- **Status Ailments complete (2026-08-18)** — the ledger's four poison vectors enforce AR/Force-Field vs airtight/gas-mask immunity (injury only penetrates if neither layer absorbs the blow; ingested doubles), continuing-decay ticks (20%/round with hourly-major / daily-minor TN 15 survival), field treatment against the Blight TN ladder, sleep-wakes-on-noise-vs-magic-only paralysis/stone, stun recovery at Body/hour, and the full cognitive layer (Mind Control gradient L1-6, opposed break with Mind Shield +2/level, against-nature edges, Exorcism clash with controller-alert on failure). 36 tests.
 
 ## What Doesn't Work Yet
 
-- **Test suite at 502 → 548 tests (547 pass, 1 skip, all runnable as of 2026-08-18)** — adding the combat maneuvers suite to the prior 18. Both ingest/roster suites isolate the roster DB + staging dirs to tmp_path, so live `data/` is never touched by tests.
+- **Test suite at 502 → 584 tests (583 pass, 1 skip, all runnable as of 2026-08-18)** — adding the status-ailments suite to the prior 19. Both ingest/roster suites isolate the roster DB + staging dirs to tmp_path, so live `data/` is never touched by tests.
 - **Full-project git** — engine code has local-only git (2026-08-14), but confidential character data (`data/`, `staging/`, `modules/`) stays untracked by design. Full-project git deferred to the BESM 4e "universal" rewrite.
 - ~~**No Combat Maneuvers runtime**~~ — **Shipped 2026-08-18** (maneuver engine in `engine/models.py`, 46 tests). The `/maneuver` TUI command is the remaining wiring.
 - **BESM mechanics engine shipped + TUI wired** — 431 tests. Engine math now exposed via `/` commands in the dashboard: `/shock`, `/resist`, `/fall`, `/range`, `/size`, `/defence`, `/scv`, `/sanity`, `/recover`, `/techniques`, `/defects`, `/engine`. Type `/engine` for the full list in-session.
@@ -230,7 +233,7 @@ class CharacterSchema(BaseModel):
 
 | Friction | Impact | Fix Effort |
 |---|---|---|
-| ~~No automated tests~~ (partial) | ~~BESM functions, economy math had no regression protection~~ | **548 tests across 20 suites** — diceless TCR + combat maneuvers now covered too |
+| ~~No automated tests~~ (partial) | ~~BESM functions, economy math had no regression protection~~ | **584 tests across 21 suites** — status ailments now covered too |
 | ~~Big rig was the only inference node~~ | ~~Can't test LLM-dependent features on thin client~~ | **Fixed 2026-08-14** — fallback chain now hops to thin client (deepseek-r1:7b) when big rig is down. Degraded narrator > dead TUI. |
 | Nieven's data is confidential | Sourced from guild record AK-S-009, not for external sharing | By design — studio content |
 | ~~No reasoning-tag stripping~~ | ~~Reasoning tags could pollute narrative~~ | **Fixed 2026-08-14** — `engine/llm_bridge.py` now calls `strip_reasoning_tags()` (from `dev/core/reasoning.py`) in `dispatch_ollama_turn()` |
@@ -314,9 +317,9 @@ Chronos Core is the engine inside the **digital-dm-project**, which unifies:
 
 ## Next Session Priorities
 
-1. ~~**Add a pytest suite**~~ → **548 tests across 20 suites.** All engine paths covered: roster CRUD + BESM loadout, batch ingest (METHOD 1/3 + failure paths), card compiler, stage_cards, bond progression, diceless TCR, combat maneuvers, plus the 13 mechanics suites.
+1. ~~**Add a pytest suite**~~ → **584 tests across 21 suites.** All engine paths covered: roster CRUD + BESM loadout, batch ingest (METHOD 1/3 + failure paths), card compiler, stage_cards, bond progression, diceless TCR, combat maneuvers, full status ailments, plus the 13 mechanics suites.
 2. ~~**Wire Combat Maneuvers**~~ → **Shipped 2026-08-18.** `engine/models.py` gains the BESM Extras maneuver calls: `resolve_tactical_stance()` (aim/wait/total defence, one per round), `two_weapon_attack()`, `strike_to_wound()`, `touch_attack()`, `resolve_called_shot()` (Table incl. disarm/reduce/bypass armour/vital spot/weak points), `grapple_attack_edges()`/`grabbed_condition()`/`escape_grapple()`/`pin_condition()` (free-hand edges, size overload, paralysis, pain-dissociation escape), and `multi_target_dispersion()`. 46 tests. Next: wire `/maneuver` into the TUI.
-3. **Wire Status Ailments** — poisons, sleep, paralysis, mind control at runtime
+3. ~~**Wire Status Ailments**~~ → **Shipped 2026-08-18.** `engine/models.py` completes the ledger: poison delivery vectors (`resolve_poison_delivery` — injury blocked by AR/Force Field, contact vs airtight, ingested ×2, inhaled vs masks), continuing-decay ticks (`continuing_poison_tick` 20%/round, `decay_survival_check` TN 15 hourly-major/daily-minor), field treatment (`treat_poison` vs Blight TN), interruption rules (`sleep_state_breaks` — sleep wakes on noise/damage, paralysis/stone magic-only), `stun_recovery_per_hour`, and the cognitive layer (`mind_control_gradient`, `mind_control_resistance` with Mind Shield +2/level, `against_nature_break_check`, `exorcism_clash`). 36 tests. Complements the existing shock/incapacitation/blight checks.
 4. ~~**Implement diceless TCR formula**~~ → **Shipped 2026-08-18.** `engine/models.py` gains `compute_tcr()` (all terms round down; EP/Mulligan declared in advance), `resolve_diceless_combat()` (Table-15 MoS bands), `diceless_battle()` wrapper, and `hedged_check()` (auto-7 non-combat). Verified 32 tests incl. the Kozoh vs Azok canonical (19 vs 17 → Slight Success). Next: wire `/diceless` into the TUI.
 5. ~~**Move DEFAULT_SETTINGS to config**~~ ✅ Done 2026-08-14 — list now lives in `config/settings.json`, loaded by `engine/config.py`, imported by `engine/guild_roster.py`
 6. ~~**Archive `backfill_besm.py`**~~ ✅ Done 2026-08-14 — moved to `dev/archive/chronos-core/backfill_besm.py`
@@ -327,4 +330,4 @@ Chronos Core is the engine inside the **digital-dm-project**, which unifies:
 
 ---
 
-*Handoff updated 2026-08-18. Chronos Core v3 — the BESM 4e rules engine. 548 tests, local-only engine-scoped git. The card→BESM compiler + staging bridge took the Shota roster 3 → 97 in one sweep — 94/94 ingested, zero fabricated lore-only rows. Every engine path now has regression coverage — even the importer and roster CRUD run against throwaway tmp DBs, combat resolves deterministically via diceless TCR, and the full BESM maneuver arsenal enforces called shots, stances, and wrestling holds. The LLM narrates; Python enforces. The Sixth Guard is not a suggestion.*
+*Handoff updated 2026-08-18. Chronos Core v3 — the BESM 4e rules engine. 584 tests, local-only engine-scoped git. The card→BESM compiler + staging bridge took the Shota roster 3 → 97 in one sweep — 94/94 ingested, zero fabricated lore-only rows. Every engine path now has regression coverage — even the importer and roster CRUD run against throwaway tmp DBs, combat resolves deterministically via diceless TCR, the full BESM maneuver arsenal enforces called shots/stances/wrestling, and every status ailment from poison vectors to mind control runs on enforced math. The LLM narrates; Python enforces. The Sixth Guard is not a suggestion.*
