@@ -1279,3 +1279,115 @@ def _resolve_roll(stat: int, _target: int,
             "total": sum(dice) + stat,
             "target": 0,
         }
+
+
+# ── diceless BESM (Extras Ch.9: pure-algebraic resolution) ──────────────
+
+# Edge/obstacle TCR values (minor +1 / major +2; mirrored negative for obstacles).
+EDGE_TCR_VALUE = {"minor": 1, "major": 2}
+OBSTACLE_TCR_VALUE = {"minor": -1, "major": -2}
+
+# Table-15: Diceless Combat Margin of Success → outcome bands.
+# (low, high) inclusive → label, duration, victor hp % loss, opponent hp % loss.
+DICELESS_MOS_TABLE = [
+    ((0, 0),      "stalemate",          "upwards of an hour or longer", 10, 10),
+    ((1, 2),      "slight_success",     "dozens of minutes",            25, 25),
+    ((3, 5),      "moderate_success",   "several minutes",              25, 50),
+    ((6, 11),     "significant_success","approximately 1-2 minutes",    10, 75),
+    ((12, 17),    "major_success",      "within 30 seconds",             5, 95),
+    ((18, None),  "extreme_success",    "several seconds",               0, 100),
+]
+
+
+def compute_tcr(combat_value: int, weapon_damage: int = 0,
+                current_hp: int = 0, extra_actions: int = 0,
+                mulligans: int = 0, ep_expended: int = 0,
+                edge: str | None = None,
+                target_ar: int = 0, target_extra_defences: int = 0,
+                obstacle: str | None = None) -> dict:
+    """Total Combat Roll (Diceless BESM, Extras Ch.9 p135).
+
+    Every term rounds down. EP and Mulligan spends must be declared in advance.
+    Returns the TCR and each contributor for transparent narration.
+    """
+    dmg_mod = weapon_damage // 10
+    hp_mod = current_hp // 20
+    act_mod = extra_actions * 2
+    mul_mod = mulligans
+    ep_mod = ep_expended // 10
+    edge_mod = EDGE_TCR_VALUE.get(edge, 0)
+    ar_mod = -(target_ar // 10)
+    def_mod = -(target_extra_defences * 2)
+    obst_mod = OBSTACLE_TCR_VALUE.get(obstacle, 0)
+    tcr = (combat_value + dmg_mod + hp_mod + act_mod + mul_mod + ep_mod
+           + edge_mod + ar_mod + def_mod + obst_mod)
+    return {
+        "tcr": tcr,
+        "combat_value": combat_value,
+        "damage_mod": dmg_mod,
+        "hp_mod": hp_mod,
+        "action_mod": act_mod,
+        "mulligan_mod": mul_mod,
+        "ep_mod": ep_mod,
+        "edge_mod": edge_mod,
+        "armour_mod": ar_mod,
+        "defence_mod": def_mod,
+        "obstacle_mod": obst_mod,
+    }
+
+
+def resolve_diceless_combat(attacker_tcr: int, defender_tcr: int) -> dict:
+    """Compare two TCRs and map the Margin of Success to Table-15.
+
+    Returns who victor is, the MoS, the outcome band, and the HP losses
+    (as % of max HP) for the narration layer to apply.
+    """
+    delta = attacker_tcr - defender_tcr
+    if delta >= 0:
+        is_attacker_victor = True
+        mos = delta
+    else:
+        is_attacker_victor = False
+        mos = -delta
+    for (lo, hi), label, duration, hp_victor, hp_opponent in DICELESS_MOS_TABLE:
+        if hi is None or lo <= mos <= hi:
+            return {
+                "attacker_wins": is_attacker_victor,
+                "mos": mos,
+                "band": label,
+                "duration": duration,
+                "victor_hp_loss_pct": hp_victor,
+                "opponent_hp_loss_pct": hp_opponent,
+            }
+    raise ValueError(f"Unbounded MoS {mos}")
+
+
+def diceless_battle(attacker: dict, defender: dict) -> dict:
+    """Convenience wrapper: compute both TCRs then resolve the clash."""
+    a = compute_tcr(**attacker)
+    d = compute_tcr(**defender)
+    result = resolve_diceless_combat(a["tcr"], d["tcr"])
+    return {
+        "attacker_tcr": a["tcr"],
+        "defender_tcr": d["tcr"],
+        **result,
+    }
+
+
+def hedged_check(stat: int, target: int,
+                 edge: str | None = None, obstacle: str | None = None) -> dict:
+    """Diceless non-combat resolution (BESM4 p182 hedging: auto-7 baseline).
+
+    Edges raise the base (minor 8 / major 9), obstacles lower it (minor 6 /
+    major 5). Net modifiers cancel — used when edge and obstacle both apply.
+    """
+    base = 7 + EDGE_TCR_VALUE.get(edge, 0) + OBSTACLE_TCR_VALUE.get(obstacle, 0)
+    total = base + stat
+    return {
+        "success": total >= target,
+        "rolled": base,
+        "total": total,
+        "target": target,
+        "edge": edge,
+        "obstacle": obstacle,
+    }

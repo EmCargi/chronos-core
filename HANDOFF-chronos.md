@@ -2,7 +2,7 @@
 project: digital-dm
 date: 2026-08-16
 status: active
-test_count: 470 total (17 verify_dungeon + 27 models + 44 economy + 28 status_effects + 34 combat_physics + 18 combat_modifiers + 27 size_scale + 28 defence_absorption + 27 extended_actions + 34 combat_techniques + 24 bond_progression + 38 sanity_recovery + 34 defects + 27 social_combat + 19 card_to_besm + 6 stage_cards + 28 guild_roster + 10 batch_ingest) = 469 pass, 1 skip, all runnable (2026-08-18)
+test_count: 502 total (17 verify_dungeon + 27 models + 44 economy + 28 status_effects + 34 combat_physics + 18 combat_modifiers + 27 size_scale + 28 defence_absorption + 27 extended_actions + 34 combat_techniques + 24 bond_progression + 38 sanity_recovery + 34 defects + 27 social_combat + 32 diceless + 19 card_to_besm + 6 stage_cards + 28 guild_roster + 10 batch_ingest) = 501 pass, 1 skip, all runnable (2026-08-18)
 git: "local-only, engine code scoped (2026-08-14)"
 ---
 # Chronos Core — Handoff Document
@@ -28,6 +28,7 @@ Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sa
 | 2026-08-18 | — | `2026-08-18-chronos-core-roster-ingest-test-suite.md` | **Full coverage closed: 469 tests green.** `test_guild_roster.py` (28: CRUD, settings, power packs, BESM loadout, markdown greetings, threats/locations/tournaments) + `test_batch_ingest.py` (10: METHOD 1 SYSTEM DATA parse, processed-file moves, offline METHOD 3 fallback, invalid-JSON + out-of-bounds failure paths, custom settings, power-pack registration). Both suites redirect roster DB + staging dirs to tmp_path so live `data/` is never touched. |
 | 2026-08-18 | — | — | **Git aligned to working tree.** The engine evolution that predated git's scope (BESM mechanics expansion in `models.py` — obstacle/edge dice, resistance; `guild_roster.py` +326; `chronos.py` +343; fallback-chain `THIN_MODEL` in config) plus the 14 legacy mechanics test suites (407 tests, incl. bond progression) were uncommitted. Everything now under git: **18 suites, 470 tests (469 pass, 1 skip)** — the true project state. No proposal; git housekeeping. |
 | 2026-08-18 | — | `2026-08-18-chronos-core-bond-progression-backfill.md` | **Bond Progression Framework V2.0 documented** — the framework in `engine/models.py` (4 phases, 7 gains, 4 losses, Shared Triumph / Favoritism Tax / group stats) and its 24-test suite were untracked and untallied until the git alignment. Now: file-map row, What Works bullet, journal entry — the true 470-test state is fully on the record. |
+| 2026-08-18 | — | `2026-08-18-chronos-core-diceless-tcr.md` | **Diceless BESM shipped** (`engine/models.py`) — `compute_tcr()` implements Extras Ch.9 Total Combat Roll with per-term rounding, `resolve_diceless_combat()` maps MoS to Table-15 bands, `hedged_check()` gives the auto-7 non-combat path. 32 tests incl. the Kozoh/Azok canonical example (19 vs 17 → Slight Success). |
 
 ## Architecture Overview
 
@@ -97,6 +98,7 @@ chronos-core/
 | `tests/test_stage_cards.py` | Staging prep tests (6: discovery, idempotent injection, statted vs lore-only screening, real-corpus 94 check) | ~80 | 6 |
 | `tests/test_bond_progression.py` | Bond Progression Framework V2.0 tests (24: phases, gain/loss tables, Shared Triumph, Favoritism Tax, group stats) | ~155 | 24 |
 | `tests/test_bond_progression.py` | Bond Progression Framework V2.0 tests (24: phases, gain/loss tables, Shared Triumph, Favoritism Tax, group stats) | ~155 | 24 |
+| `tests/test_diceless.py` | Diceless BESM tests (32: TCR formula + rounding, Table-15 MoS bands, Kozoh/Azok canonical, auto-7 hedging) | ~230 | 32 |
 | `tests/test_guild_roster.py` | Roster CRUD tests (28: init/settings, character upsert + retrieval, BESM loadout, markdown greetings, power packs, summaries, threats/locations/tournaments) | ~270 | 28 |
 | `tests/test_batch_ingest.py` | Importer tests (10: METHOD 1 SYSTEM DATA parse, file moves, offline fallback, failure paths, custom settings, power packs) — roster DB + staging redirected to tmp_path | ~150 | 10 |
 | `engine/__init__.py` | Package exports | ~30 | — |
@@ -208,14 +210,15 @@ class CharacterSchema(BaseModel):
 - **Deterministic card → BESM compiler + first ingest (2026-08-18)** — `engine/card_to_besm.py` turns statted cards into METHOD 1 SYSTEM DATA blocks with zero LLM calls; `stage_cards.py` staged the 94 statted cards and a live sweep ingested **94/94 → Shota roster 3 → 97** (T1×25 / T2×27 / T3×19 / T4×13 / T5×10). Verified by 25 contract tests.
 - **Full test suite runnable (2026-08-18)** — root venv's corrupted pytest reinstalled + `conftest.py` bootstrap; **469 passed, 1 skipped (470 total)** for the first time (legacy suites previously couldn't import `core.ollama`).
 - **Bond Progression Framework V2.0 shipped inside `engine/models.py` (2026-08-18)** — trust scores (0–100) clamp to 4 phases (Surface → Warmth → Confidant → Soulbound); 7 gain triggers (5–10 pts, intimacy once-per-phase) and 4 loss triggers (−15 to −50); Shared Triumph (+10 hero / +5 witnesses) and Favoritism Tax (−10 neglected NPCs). Backfilled from git housekeeping: `tests/test_bond_progression.py` (24) documents it — was untracked and untallied until the alignment pass.
+- **Diceless BESM resolution (2026-08-18)** — `compute_tcr()` implements Extras Ch.9's Total Combat Roll (CV + ⌊dmg/10⌋ + ⌊HP/20⌋ + 2×ExtraActions + Mulligans + ⌊EP/10⌋ + edge − ⌊AR/10⌋ − 2×ExtraDefences − obstacle, every term rounded down); `resolve_diceless_combat()` maps MoS to Table-15 outcome bands with HP-loss percentages; `hedged_check()` handles non-combat via the auto-7 baseline (BESM4 p182). Deterministic, zero roll calls.
 
 ## What Doesn't Work Yet
 
-- **Test suite at 470 tests (469 pass, 1 skip, all runnable as of 2026-08-18)** — covering verify_dungeon, models, economy, status effects, combat physics, modifiers, size/scale, defence absorption, extended actions, combat techniques, bond progression, sanity/recovery, defects, social combat, the card compiler, stage_cards, guild_roster CRUD, and batch_ingest. Both ingest/roster suites isolate the roster DB + staging dirs to tmp_path, so live `data/` is never touched by tests.
+- **Test suite at 470 → 502 tests (501 pass, 1 skip, all runnable as of 2026-08-18)** — adding the diceless suite to the prior 18. Both ingest/roster suites isolate the roster DB + staging dirs to tmp_path, so live `data/` is never touched by tests.
 - **Full-project git** — engine code has local-only git (2026-08-14), but confidential character data (`data/`, `staging/`, `modules/`) stays untracked by design. Full-project git deferred to the BESM 4e "universal" rewrite.
 - **No Combat Maneuvers runtime** — `/maneuver` command not wired (designed but not implemented)
 - **BESM mechanics engine shipped + TUI wired** — 431 tests. Engine math now exposed via `/` commands in the dashboard: `/shock`, `/resist`, `/fall`, `/range`, `/size`, `/defence`, `/scv`, `/sanity`, `/recover`, `/techniques`, `/defects`, `/engine`. Type `/engine` for the full list in-session.
-- **No diceless TCR formula** — alternative resolution mode designed but not implemented
+- ~~**No diceless TCR formula**~~ — **Shipped 2026-08-18** (`compute_tcr`/`resolve_diceless_combat`/`hedged_check` in `engine/models.py`, 32 tests). Not yet wired into the TUI — `/diceless` command pending.
 - **Thin client can't run inference** — all LLM-dependent testing requires big rig Ollama
 - **Nieven's narrative syntax needs tuning** — flagged for extended live play
 - ~~**`backfill_besm.py` not archived**~~ — **Archived 2026-08-14** → `dev/archive/chronos-core/backfill_besm.py`
@@ -224,7 +227,7 @@ class CharacterSchema(BaseModel):
 
 | Friction | Impact | Fix Effort |
 |---|---|---|
-| ~~No automated tests~~ (partial) | ~~BESM functions, economy math had no regression protection~~ | **470 tests across 18 suites** — roster CRUD + batch_ingest now covered too |
+| ~~No automated tests~~ (partial) | ~~BESM functions, economy math had no regression protection~~ | **502 tests across 19 suites** — diceless TCR now covered too |
 | ~~Big rig was the only inference node~~ | ~~Can't test LLM-dependent features on thin client~~ | **Fixed 2026-08-14** — fallback chain now hops to thin client (deepseek-r1:7b) when big rig is down. Degraded narrator > dead TUI. |
 | Nieven's data is confidential | Sourced from guild record AK-S-009, not for external sharing | By design — studio content |
 | ~~No reasoning-tag stripping~~ | ~~Reasoning tags could pollute narrative~~ | **Fixed 2026-08-14** — `engine/llm_bridge.py` now calls `strip_reasoning_tags()` (from `dev/core/reasoning.py`) in `dispatch_ollama_turn()` |
@@ -308,10 +311,10 @@ Chronos Core is the engine inside the **digital-dm-project**, which unifies:
 
 ## Next Session Priorities
 
-1. ~~**Add a pytest suite**~~ → **470 tests across 18 suites.** All engine paths covered: roster CRUD + BESM loadout, batch ingest (METHOD 1/3 + failure paths), card compiler, stage_cards, bond progression, plus the 13 mechanics suites.
+1. ~~**Add a pytest suite**~~ → **502 tests across 19 suites.** All engine paths covered: roster CRUD + BESM loadout, batch ingest (METHOD 1/3 + failure paths), card compiler, stage_cards, bond progression, diceless TCR, plus the 13 mechanics suites.
 2. **Wire Combat Maneuvers** — `/maneuver` command (tactical stances, called shots, grappling, multi-target)
 3. **Wire Status Ailments** — poisons, sleep, paralysis, mind control at runtime
-4. **Implement diceless TCR formula** — alternative resolution mode (deterministic, no dice)
+4. ~~**Implement diceless TCR formula**~~ → **Shipped 2026-08-18.** `engine/models.py` gains `compute_tcr()` (all terms round down; EP/Mulligan declared in advance), `resolve_diceless_combat()` (Table-15 MoS bands), `diceless_battle()` wrapper, and `hedged_check()` (auto-7 non-combat). Verified 32 tests incl. the Kozoh vs Azok canonical (19 vs 17 → Slight Success). Next: wire `/diceless` into the TUI.
 5. ~~**Move DEFAULT_SETTINGS to config**~~ ✅ Done 2026-08-14 — list now lives in `config/settings.json`, loaded by `engine/config.py`, imported by `engine/guild_roster.py`
 6. ~~**Archive `backfill_besm.py`**~~ ✅ Done 2026-08-14 — moved to `dev/archive/chronos-core/backfill_besm.py`
 7. **Tune Nieven's narrative syntax** — needs extended live play
@@ -321,4 +324,4 @@ Chronos Core is the engine inside the **digital-dm-project**, which unifies:
 
 ---
 
-*Handoff updated 2026-08-18. Chronos Core v3 — the BESM 4e rules engine. 470 tests, local-only engine-scoped git. The card→BESM compiler + staging bridge took the Shota roster 3 → 97 in one sweep — 94/94 ingested, zero fabricated lore-only rows. Every engine path now has regression coverage — even the importer and roster CRUD run against throwaway tmp DBs. The LLM narrates; Python enforces. The Sixth Guard is not a suggestion.*
+*Handoff updated 2026-08-18. Chronos Core v3 — the BESM 4e rules engine. 502 tests, local-only engine-scoped git. The card→BESM compiler + staging bridge took the Shota roster 3 → 97 in one sweep — 94/94 ingested, zero fabricated lore-only rows. Every engine path now has regression coverage — even the importer and roster CRUD run against throwaway tmp DBs, and combat resolves deterministically via diceless TCR. The LLM narrates; Python enforces. The Sixth Guard is not a suggestion.*
