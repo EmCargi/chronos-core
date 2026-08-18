@@ -1391,3 +1391,155 @@ def hedged_check(stat: int, target: int,
         "edge": edge,
         "obstacle": obstacle,
     }
+
+
+# ── combat maneuvers & tactical stances (Extras: stances, called shots, grappling) ──
+
+TACTICAL_ACTIONS_PER_ROUND = 1
+
+# Called-shot definitions: obstacle weight (0/1/2), AR effect, damage multiplier.
+# weight: 1=minor obstacle, 2=major obstacle (BESM Extras pp.157-160).
+CALLED_SHOTS = {
+    "disarm_melee":        {"weight": 1, "ar_effect": "ignore", "multiplier": 1, "hp_damage": False, "body_tn": 15},
+    "disarm_ranged":       {"weight": 2, "ar_effect": "ignore", "multiplier": 1, "hp_damage": False, "body_tn": 15},
+    "reduce_armour":       {"weight": 1, "ar_effect": "half",   "multiplier": 1, "hp_damage": True},
+    "bypass_armour":       {"weight": 2, "ar_effect": "ignore", "multiplier": 1, "hp_damage": True},
+    "vital_spot":          {"weight": 2, "ar_effect": "ignore", "multiplier": 2, "hp_damage": True},
+    "weak_point_large":    {"weight": 1, "ar_effect": "ignore", "multiplier": 1, "hp_damage": True},
+    "weak_point_small":    {"weight": 2, "ar_effect": "ignore", "multiplier": 1, "hp_damage": True},
+    "weak_point_tiny":     {"weight": 2, "ar_effect": "ignore", "multiplier": 1, "hp_damage": True, "defender_edge": 1},
+}
+
+# Grapple/pin conditions (Extras pp.165-170). Grabbed: minor obstacle on melee
+# attack/defence, major obstacle on movement tasks. Pinned: no actions.
+GRAPPLE_MELEE_OBSTACLE = 1
+GRAPPLE_TASK_OBSTACLE = 2
+PIN_ESCAPE_OBSTACLE = 2
+PAIN_DISSOCIATION_FACTOR = 5
+
+
+def resolve_tactical_stance(stance: str, has_ranged: bool = False,
+                            consecutive_rounds: int = 1) -> dict:
+    """Resolve a declared tactical action (max one per round).
+
+    stance: 'aim' | 'wait' | 'total_defence'. Rounds 2+ of aim/wait escalate
+    minor → major edge. Returns edge weight for the next attack, or the
+    defence edge for total defence."""
+    key = stance.lower().replace(" ", "_")
+    if key not in ("aim", "wait", "total_defence"):
+        return {"valid": False, "reason": f"unknown tactical action '{stance}'",
+                "attack_edge": 0, "defence_edge": 0, "can_attack": True}
+    if key == "aim" and not has_ranged:
+        return {"valid": False, "reason": "aim requires a ranged weapon",
+                "attack_edge": 0, "defence_edge": 0, "can_attack": True}
+    if key == "total_defence":
+        return {"valid": True, "stance": key,
+                "attack_edge": 0, "defence_edge": 2, "can_attack": False}
+    edge = 1 if consecutive_rounds <= 1 else 2
+    return {"valid": True, "stance": key, "attack_edge": edge,
+            "defence_edge": 0, "can_attack": True}
+
+
+def two_weapon_attack(same_target: bool = True, techniques: list = None) -> dict:
+    """Attacks with two weapons: single target → minor obstacle; two targets →
+    major obstacle. Two Weapons technique negates the penalty entirely."""
+    weight = 1 if same_target else 2
+    if _has_technique(techniques, "two weapons"):
+        return {"obstacle": 0, "raw_weight": weight, "negated": True}
+    return {"obstacle": weight, "raw_weight": weight, "negated": False}
+
+
+def strike_to_wound(base_damage: int,
+                    has_area: bool = False, has_autofire: bool = False,
+                    has_spreading: bool = False) -> dict:
+    """Striking to Wound: flat un-multiplied damage, minimum 1. Cannot combine
+    with Area, Autofire, or Spreading enhancements."""
+    if has_area or has_autofire or has_spreading:
+        return {"valid": False, "reason": "cannot combine with Area/Autofire/Spreading",
+                "damage": 0}
+    return {"valid": True, "damage": max(1, base_damage), "flat": True}
+
+
+def touch_attack(called_spot: bool = False) -> dict:
+    """Touching a Target: passive Minor Edge. Called touch to a protected spot
+    still requires the called-shot obstacle."""
+    return {"edge": 1, "requires_called_shot": called_spot}
+
+
+def resolve_called_shot(shot: str, techniques: list = None) -> dict:
+    """Resolve a called shot: obstacle weight, AR effect, damage multiplier.
+    Precise Aim reduces the obstacle weight by one tier."""
+    spec = CALLED_SHOTS.get(shot.lower().replace(" ", "_"))
+    if not spec:
+        return {"valid": False, "reason": f"unknown called shot '{shot}'"}
+    reduction = technique_obstacle_reduction(techniques or [], "called_shot")
+    weight = apply_obstacle_reduction(spec["weight"], reduction)
+    return {
+        "valid": True, "shot": shot,
+        "obstacle": weight, "ar_effect": spec["ar_effect"],
+        "multiplier": spec.get("multiplier", 1),
+        "hp_damage": spec.get("hp_damage", True),
+        "body_tn": spec.get("body_tn"),
+        "defender_edge": spec.get("defender_edge", 0),
+    }
+
+
+def grapple_attack_edges(attacker_free_hands: int, defender_free_hands: int,
+                         size_rank_delta: int = 0) -> dict:
+    """Initiating a grab: free-hand advantage. 1-3 more free hands → Minor Edge,
+    4+ → Major Edge. A target two+ Size Ranks smaller is 'much weaker'
+    (penalties escalate)."""
+    delta = attacker_free_hands - defender_free_hands
+    edge = 2 if delta >= 4 else (1 if delta >= 1 else 0)
+    much_weaker = size_rank_delta >= 2
+    return {"edge": edge, "free_hand_delta": delta, "much_weaker": much_weaker}
+
+
+def grabbed_condition(grappler_body: int, target_body: int,
+                      target_much_stronger: bool = False,
+                      target_much_weaker: bool = False) -> dict:
+    """The Grabbed condition: minor obstacle on melee attacks/defence, major on
+    movement tasks. A much stronger target reduces penalties one tier; a much
+    weaker target is completely paralyzed (no rolls permitted)."""
+    if target_much_weaker:
+        return {"paralyzed": True, "melee_obstacle": 0, "task_obstacle": 0,
+                "can_act": False, "reason": "much weaker — no rolls permitted"}
+    melee = GRAPPLE_MELEE_OBSTACLE
+    task = GRAPPLE_TASK_OBSTACLE
+    if target_much_stronger:
+        melee = max(0, melee - 1)
+        task = max(0, task - 1)
+    return {"paralyzed": False, "melee_obstacle": melee, "task_obstacle": task,
+            "can_act": True}
+
+
+def escape_grapple(target_body: int, grappler_body: int,
+                   damage_dealt: int = 0) -> dict:
+    """Escape a grapple two ways: an opposed Body roll (caller resolves), or
+    Pain Dissociation — inflicting ≥ 5 × grappler's Body auto-escapes."""
+    threshold = PAIN_DISSOCIATION_FACTOR * grappler_body
+    auto = damage_dealt >= threshold
+    return {"auto_escape": auto, "threshold": threshold,
+            "opposed_body": target_body >= 1, "method": "opposed roll or pain dissociation"}
+
+
+def pin_condition(escape_obstacle: int = PIN_ESCAPE_OBSTACLE) -> dict:
+    """Pin: target cannot attack or defend; Major Obstacle on escape rolls."""
+    return {"can_attack": False, "can_defend": False,
+            "escape_obstacle": escape_obstacle}
+
+
+def multi_target_dispersion(num_targets: int, techniques: list = None) -> dict:
+    """Multi-target dispersion: one attack roll, N defenders. 2 targets → minor
+    obstacle, 3 → major; 4+ adds defender edges (4: minor, 5+: major).
+    Multiple Targets technique reduces the obstacle."""
+    if num_targets <= 1:
+        return {"obstacle": 0, "defender_edge": 0}
+    weight = 1 if num_targets == 2 else 2
+    reduction = technique_obstacle_reduction(techniques or [], "multi_target")
+    adjusted = apply_obstacle_reduction(weight, reduction)
+    defender_edge = 0
+    if num_targets >= 4:
+        defender_edge = 1 if num_targets == 4 else 2
+    return {"obstacle": adjusted, "defender_edge": defender_edge,
+            "unified_roll": True}
