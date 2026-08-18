@@ -12,23 +12,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 ROSTER_PATH = os.path.join(DATA_DIR, "guild_rpg_roster.db")
 
-# Canonical settings registered at init time.
-DEFAULT_SETTINGS = [
-    {
-        "setting_id": "guild_rpg",
-        "name": "Aelthar Keldor: Guild RPG",
-        "description": "The Guild RPG campaign system: quest boards, adventurer ranks, and the Aelthar Keldor roster.",
-        "default_module": "sandbox_75cp.json",
-        "character_label": "Guild Rank"
-    },
-    {
-        "setting_id": "shota_x_monsters",
-        "name": "Shota x Monsters 2",
-        "description": "The Shota x Monsters 2 BESM 4e expansion: labyrinth taming, monster tiers, and town facilities.",
-        "default_module": "forest_labyrinth_v1.json",
-        "character_label": "Monster Tier"
-    }
-]
+from .config import DEFAULT_SETTINGS
 
 def get_roster_connection() -> sqlite3.Connection:
     """Safely connects to data/guild_rpg_roster.db with standard context manager."""
@@ -93,7 +77,7 @@ def init_roster_db() -> None:
         """)
     migrate_roster_multi_setting()
     migrate_roster_narrative_syntax()
-    migrate_roster_besa_columns()
+    migrate_roster_besm_columns()
     seed_default_settings()
     logger.info(f"Guild RPG roster database initialized at {ROSTER_PATH}.")
 
@@ -197,9 +181,9 @@ def migrate_roster_narrative_syntax() -> None:
                 logger.info(f"Added narrative-syntax column: characters.{column}")
     logger.info("Narrative-syntax migration complete.")
 
-def migrate_roster_besa_columns() -> None:
+def migrate_roster_besm_columns() -> None:
     """
-    One-time migration: adds BESA rules columns (combat_techniques, skills,
+    One-time migration: adds BESM rules columns (combat_techniques, skills,
     defects, shock_value) to the characters table. These fields encode the new
     BESM 4e rules extraction (Combat Techniques, Skills, Defects, Shock Value)
     so the runtime shell can inject mechanical constraints into the AI Director's
@@ -218,8 +202,8 @@ def migrate_roster_besa_columns() -> None:
         ]:
             if column not in cols:
                 conn.execute(f"ALTER TABLE characters ADD COLUMN {ddl}")
-                logger.info(f"Added BESA rules column: characters.{column}")
-    logger.info("BESA rules migration complete.")
+                logger.info(f"Added BESM rules column: characters.{column}")
+    logger.info("BESM rules migration complete.")
 
 
 def compute_shock_value(max_hp: int, combat_techniques: list) -> int:
@@ -237,7 +221,7 @@ def compute_shock_value(max_hp: int, combat_techniques: list) -> int:
 
 def get_character_loadout(setting_id: str, name: str) -> dict:
     """
-    Return the full BESA loadout for display in the TUI.
+    Return the full BESM loadout for display in the TUI.
     Returns empty dict if character not found.
     """
     char = get_character(setting_id, name)
@@ -301,7 +285,7 @@ def update_character_loadout(setting_id: str, name: str,
                               techniques: list, skills: list,
                               defects: list) -> None:
     """
-    Update BESA rules fields for a character. Idempotent: safe to re-run.
+    Update BESM rules fields for a character. Idempotent: safe to re-run.
     shock_value is recomputed from techniques.
     """
     char = get_character(setting_id, name)
@@ -322,7 +306,7 @@ def update_character_loadout(setting_id: str, name: str,
             setting_id,
             name
         ))
-    logger.info(f"Updated BESA loadout for {name} [{setting_id}] (SV={shock}).")
+    logger.info(f"Updated BESM loadout for {name} [{setting_id}] (SV={shock}).")
 
 
 def seed_default_settings() -> None:
@@ -367,7 +351,7 @@ def upsert_character(setting_id: str, character: dict, card_json: str, source_pa
     Inserts or replaces a canonical character row within a setting. character must include:
     name, rank_label, race, points_budget, stat_body, stat_mind, stat_soul, acv, dcv, max_hp, max_ep.
     Optional narrative-syntax fields: sixth_guard, structural_fault, levers.
-    Optional BESA rules fields: combat_techniques, skills, defects, shock_value.
+    Optional BESM rules fields: combat_techniques, skills, defects, shock_value.
     """
     techniques = character.get("combat_techniques", [])
     skills = character.get("skills", [])
@@ -691,3 +675,293 @@ def format_greeting_list(greetings: list) -> str:
         if g['opening']:
             lines.append(f"      [dim]\"{g['opening'][:50]}\"[/dim]")
     return "\n".join(lines)
+
+
+# ── THREAT INDEX (Bestiary) ──────────────────────────────────────────────
+
+def init_threats_table() -> None:
+    """Create the threats table if it doesn't exist."""
+    with get_roster_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS threats (
+                setting_id     TEXT NOT NULL,
+                name           TEXT NOT NULL,
+                threat_type    TEXT NOT NULL DEFAULT 'boss',
+                size_rank      INTEGER NOT NULL DEFAULT 0,
+                stat_body      INTEGER NOT NULL DEFAULT 1,
+                stat_mind      INTEGER NOT NULL DEFAULT 1,
+                stat_soul      INTEGER NOT NULL DEFAULT 1,
+                max_hp         INTEGER NOT NULL DEFAULT 10,
+                armour_rating  INTEGER NOT NULL DEFAULT 0,
+                base_damage    INTEGER NOT NULL DEFAULT 5,
+                description    TEXT NOT NULL DEFAULT '',
+                lore           TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (setting_id, name)
+            )
+        """)
+
+def seed_threat_catalog(setting_id: str = "guild_rpg") -> None:
+    """Seed the threat index with canonical bosses (idempotent)."""
+    init_threats_table()
+    with get_roster_connection() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO threats (
+                setting_id, name, threat_type, size_rank,
+                stat_body, stat_mind, stat_soul,
+                max_hp, armour_rating, base_damage, description, lore
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            setting_id, "Zarkhoth", "boss", 3,
+            10, 8, 12,
+            110, 70, 75,
+            "Ancient demon. Black Diamond Armour forged from the bones of the Shirakane clan. Size Mammoth (3). Killed Tomoe's entire clan in minutes.",
+            "Armour resists Penetrating (only -5 AR/rank). Unarmoured at joints—Called Shot at Major Obstacle bypasses. Slain commanders sharpen Kurotsuki."
+        ))
+        conn.execute("""
+            INSERT OR IGNORE INTO threats (
+                setting_id, name, threat_type, size_rank,
+                stat_body, stat_mind, stat_soul,
+                max_hp, armour_rating, base_damage, description, lore
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            setting_id, "Thunderheart Titan", "boss", 6,
+            14, 4, 6,
+            500, 60, 80,
+            "Colossal golem infused with lightning element. Over 100m tall. Creates storms. Destroys all artificial settlements.",
+            "Cannot be killed by weapons. Mission: survive until Sylvara recharges teleport. Ancient runes are weak points."
+        ))
+        conn.execute("""
+            INSERT OR IGNORE INTO threats (
+                setting_id, name, threat_type, size_rank,
+                stat_body, stat_mind, stat_soul,
+                max_hp, armour_rating, base_damage, description, lore
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            setting_id, "Korvath", "commander", 2,
+            8, 5, 6,
+            80, 30, 40,
+            "Zarkhoth's brute commander. 7ft tall. Black Diamond greatsword. Absolute killing intent.",
+            "Must be killed before Zarkhoth — Kurotsuki sharpens +3 dmg on kill."
+        ))
+        conn.execute("""
+            INSERT OR IGNORE INTO threats (
+                setting_id, name, threat_type, size_rank,
+                stat_body, stat_mind, stat_soul,
+                max_hp, armour_rating, base_damage, description, lore
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            setting_id, "Nythera", "commander", 1,
+            6, 9, 8,
+            65, 20, 30,
+            "Zarkhoth's sorceress commander. Demonic horns. White hair. Black Diamond war scythe. Unhinged laughter.",
+            "Must be killed before Zarkhoth — Kurotsuki sharpens +3 dmg on kill."
+        ))
+    logger.info(f"Seeded threat catalog for setting '{setting_id}'.")
+
+def get_threat(setting_id: str, name: str) -> dict | None:
+    """Look up a single threat by substring match on name."""
+    with get_roster_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM threats WHERE setting_id = ? AND LOWER(name) LIKE ?",
+            (setting_id, f"%{name.lower()}%")
+        ).fetchone()
+        return dict(row) if row else None
+
+def list_threats(setting_id: str, threat_type: str | None = None) -> list:
+    """List threats, optionally filtered by type."""
+    with get_roster_connection() as conn:
+        if threat_type:
+            rows = conn.execute(
+                "SELECT * FROM threats WHERE setting_id = ? AND threat_type = ? ORDER BY size_rank DESC",
+                (setting_id, threat_type)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM threats WHERE setting_id = ? ORDER BY size_rank DESC",
+                (setting_id,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+def threat_summary(setting_id: str) -> str:
+    """Human-readable threat listing for TUI display."""
+    threats = list_threats(setting_id)
+    if not threats:
+        return "No threats registered."
+    lines = [f"  [bold red]{'='*60}[/bold red]"]
+    for t in threats:
+        lines.append(f"  [bold white]{t['name']}[/bold white] [{t['threat_type']}] "
+                     f"Size {t['size_rank']} | HP {t['max_hp']} | AR {t['armour_rating']} | DMG {t['base_damage']}")
+        lines.append(f"      [dim]{t['description'][:100]}[/dim]")
+    lines.append(f"  [bold red]{'='*60}[/bold red]")
+    return "\n".join(lines)
+
+
+# ── LOCATION ATLAS ────────────────────────────────────────────────────────
+
+def init_locations_table() -> None:
+    """Create the locations table if it doesn't exist."""
+    with get_roster_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS locations (
+                setting_id    TEXT NOT NULL,
+                name          TEXT NOT NULL,
+                location_type TEXT NOT NULL DEFAULT 'settlement',
+                region        TEXT NOT NULL DEFAULT '',
+                description   TEXT NOT NULL DEFAULT '',
+                travel_from_capital TEXT NOT NULL DEFAULT '',
+                notes         TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (setting_id, name)
+            )
+        """)
+
+def seed_locations(setting_id: str = "guild_rpg") -> None:
+    """Seed the canonical atlas locations (idempotent)."""
+    init_locations_table()
+    atlas = [
+        ("The Capital City", "capital", "Central Realm",
+         "Hub of the realm. Aelthar Keldor guild founded here 62 years ago.",
+         "Here", ""),
+        ("Capital Arena", "venue", "The Capital",
+         "Massive tournament structure where grand adventurer matches are held before kings and nobles.",
+         "In city", ""),
+        ("Inewell", "city", "Western Realm",
+         "Large western city renowned for numerous magical academies. Magic is a craft and profession.",
+         "5 days via main road", "Eira, Sefne, Sera educated here."),
+        ("Srurpolis", "city", "Central Realm",
+         "Stratified city — wealthy elite at center, poor struggling on outskirts.",
+         "5 days via main road, 2 via Stoneshade Pass", "Feala was born in the poorest district."),
+        ("Auciel", "kingdom", "Northern Realm",
+         "Towering northern kingdom. Nobility isolated high in clouds, peasantry at mountain base.",
+         "Via brittle mountain roads", "Lord Auciel's private parlor — social combat arena."),
+        ("Khaz-Durak", "stronghold", "Western Mountains",
+         "Massive dwarven stronghold-city. Echoing stone halls, roaring forges, gem-cutting workshops. Plagued by goblin raids.",
+         "Deep under western mountains", "Dillia's birthplace."),
+        ("Eldrakor Volcano", "danger_zone", "South",
+         "Volcanic region. Labyrinthine cave system beneath slopes used as hidden demonic base.",
+         "2 weeks south", "Zarkhoth's commanders Korvath and Nythera lair here."),
+        ("Hemlock", "ruin", "Northern Forest",
+         "Abandoned wraith-haunted village on the old forest path to Auciel. Destroyed 18 years ago.",
+         "Via old forest path", "Fred disappeared here. Wraiths chant Puissance, Releguer, Repentir."),
+        ("Stoneshade Mountain Pass", "route", "Central Mountains",
+         "Treacherous mountain road cutting travel to Srurpolis to 2 days. Far more dangerous than main path.",
+         "Via mountain pass", ""),
+        ("Redfang Plains", "region", "Central Realm",
+         "Flatlands frequently traversed by merchant caravans. Heavily plagued by bandit camps and ambushes.",
+         "1-2 days", ""),
+        ("Guiltos Grove", "danger_zone", "Deep Forest",
+         "Highly dangerous forest. Home to rare arcane tree species Veyl'ethar.",
+         "Deep forest", ""),
+        ("Elf Realm", "continent", "Overseas",
+         "Distant continent across the ocean. Completely inhabited by elves. Powerful High Elf kingdoms.",
+         "Overseas — months by ship", "Sylvara is from here."),
+        ("The Distant East", "region", "Eastern Realm",
+         "Former home of the secretive Shirakane clan. Eastern capital devastated by Zarkhoth.",
+         "Months of travel", "Tomoe's homeland. Shirakane clan massacre site."),
+        ("Loneon", "town", "Central Realm",
+         "City a short one-day walk from the guild along the main road.",
+         "1 day", ""),
+        ("Oakhaven", "town", "Central Realm",
+         "Town half a day from the capital. Home to blacksmith Brom.",
+         "Half day", ""),
+    ]
+    with get_roster_connection() as conn:
+        for name, ltype, region, desc, travel, notes in atlas:
+            conn.execute("""
+                INSERT OR IGNORE INTO locations (
+                    setting_id, name, location_type, region, description, travel_from_capital, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (setting_id, name, ltype, region, desc, travel, notes))
+    logger.info(f"Seeded {len(atlas)} locations for '{setting_id}'.")
+
+def list_locations(setting_id: str, location_type: str | None = None) -> list:
+    """List atlas locations, optionally filtered by type."""
+    with get_roster_connection() as conn:
+        if location_type:
+            rows = conn.execute(
+                "SELECT * FROM locations WHERE setting_id = ? AND location_type = ? ORDER BY name",
+                (setting_id, location_type)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM locations WHERE setting_id = ? ORDER BY name", (setting_id,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+def get_location(setting_id: str, name: str) -> dict | None:
+    """Look up a location by substring match."""
+    with get_roster_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM locations WHERE setting_id = ? AND LOWER(name) LIKE ?",
+            (setting_id, f"%{name.lower()}%")
+        ).fetchone()
+        return dict(row) if row else None
+
+def location_summary(setting_id: str) -> str:
+    """Human-readable atlas for TUI display."""
+    locs = list_locations(setting_id)
+    if not locs:
+        return "No locations registered."
+    lines = [f"  [bold cyan]{'='*60}[/bold cyan]"]
+    by_type = {}
+    for l in locs:
+        by_type.setdefault(l['location_type'], []).append(l)
+    for ltype, items in sorted(by_type.items()):
+        lines.append(f"  [bold cyan]── {ltype.title()}s ──[/bold cyan]")
+        for l in items:
+            travel = f" [{l['travel_from_capital']}]" if l['travel_from_capital'] else ""
+            lines.append(f"  [bold white]{l['name']}[/bold white] ({l['region']}){travel}")
+            if l['notes']:
+                lines.append(f"      [dim italic]{l['notes']}[/dim italic]")
+    lines.append(f"  [bold cyan]{'='*60}[/bold cyan]")
+    return "\n".join(lines)
+
+
+# ── TOURNAMENT ENGINE ─────────────────────────────────────────────────────
+
+def init_tournaments_table() -> None:
+    """Create the tournaments table if it doesn't exist."""
+    with get_roster_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tournaments (
+                setting_id     TEXT NOT NULL,
+                tournament_id  TEXT NOT NULL,
+                name           TEXT NOT NULL,
+                rank_bracket   TEXT NOT NULL,
+                prize_silver   INTEGER NOT NULL DEFAULT 0,
+                prize_rank_promo TEXT NOT NULL DEFAULT '',
+                guild_count    INTEGER NOT NULL DEFAULT 8,
+                status         TEXT NOT NULL DEFAULT 'upcoming',
+                champion       TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (setting_id, tournament_id)
+            )
+        """)
+
+def seed_tournaments(setting_id: str = "guild_rpg") -> None:
+    """Seed the canonical tournament schedule (idempotent)."""
+    init_tournaments_table()
+    tourneys = [
+        ("capital_arena_spring", "Spring Grand Tournament", "B", 500, "A-Rank promotion consideration",
+         16, "upcoming", ""),
+        ("underground_slums", "South-East Slum Rings", "D", 50, "C-Rank promotion",
+         4, "recurring", ""),
+        ("cross_guild_autumn", "Autumn Cross-Guild Championship", "A", 5000, "S-Rank consideration + territory rights",
+         8, "upcoming", ""),
+    ]
+    with get_roster_connection() as conn:
+        for tid, name, bracket, prize, promo, guilds, status, champ in tourneys:
+            conn.execute("""
+                INSERT OR IGNORE INTO tournaments (
+                    setting_id, tournament_id, name, rank_bracket, prize_silver,
+                    prize_rank_promo, guild_count, status, champion
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (setting_id, tid, name, bracket, prize, promo, guilds, status, champ))
+    logger.info(f"Seeded tournaments for '{setting_id}'.")
+
+def list_tournaments(setting_id: str) -> list:
+    """List all tournaments for a setting."""
+    with get_roster_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM tournaments WHERE setting_id = ? ORDER BY rank_bracket",
+            (setting_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]

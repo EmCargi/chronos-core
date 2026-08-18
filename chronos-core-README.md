@@ -12,7 +12,7 @@ Version 3 adds mechanical enforcement to the v2 foundation: the LLM shell prompt
 chronos-core/
 ├── chronos.py                     # Main Rich TUI dashboard (command loop + HUD)
 ├── launcher.py                    # Unified command launcher (TUI / wizard / ingest / verify)
-├── backfill_besa.py               # One-time BESM loadout backfill script (idempotent)
+├── (backfill_besm.py archived → dev/archive/chronos-core/)
 ├── ITEMS_ECONOMY_PLAN.md          # Design doc for the item & silver-economy layer
 ├── config/
 │   └── settings.json              # Global LLM / model / default-setting config
@@ -28,12 +28,12 @@ chronos-core/
 ├── engine/
 │   ├── __init__.py                # Package exports
 │   ├── config.py                  # Settings loader / defaults
-│   ├── models.py                  # Pydantic v2 contracts + Tri-Stat + BESA fields
+│   ├── models.py                  # Pydantic v2 contracts + Tri-Stat + BESM fields
 │   ├── state_manager.py           # Runtime session state (vitals, navigation, chronology)
-│   ├── guild_roster.py            # Multi-setting roster + BESA loadout functions
+│   ├── guild_roster.py            # Multi-setting roster + BESM loadout functions
 │   ├── economy.py                 # Items, wallets, inventory + silver price curves
 │   ├── batch_ingest.py            # Character card importer with setting detection
-│   ├── llm_bridge.py              # Ollama dispatch + BESA field formatters
+│   ├── llm_bridge.py              # Ollama dispatch + BESM field formatters
 │   ├── char_wizard.py             # Character Creator Wizard utility
 │   ├── verify_dungeon.py          # Campaign module structural validator
 │   └── prompts/
@@ -46,7 +46,7 @@ chronos-core/
 ```
 
 **Two databases, one rule:**
-- `guild_rpg_roster.db` — the **canonical catalog** (settings, characters [22 cols with BESA loadout], power packs, items, wallets, inventory). Survives sessions.
+- `guild_rpg_roster.db` — the **canonical catalog** (settings, characters [22 cols with BESM loadout], power packs, items, wallets, inventory). Survives sessions.
 - `chronos_session.db` — **runtime state only** (current vitals, active node, narrative history). Repopulated from the roster on launch.
 
 ---
@@ -181,7 +181,7 @@ venv/bin/python chronos.py
 | `/wallet [name]` | Show a character's silver balance |
 | `/grant <silver>` | GM quick-balance command |
 | `/inventory` | Show owned items |
-| `/loadout` | Show full BESA build (techniques, skills, defects, shock value) |
+| `/loadout` | Show full BESM build (techniques, skills, defects, shock value) |
 | `/use <item_id>` | Consume a consumable (e.g. heal 15 HP) |
 | `auto-ingest` | Run the staging sweep |
 

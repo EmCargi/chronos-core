@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import os
 import sys
+from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-# Ensure the root folder is on Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))  # dev/ — shared core
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # chronos-core/
 
 from chronos import main as run_game
 from engine.char_wizard import run_character_wizard

@@ -11,9 +11,10 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 # Default configuration settings
 DEFAULTS = {
     "ACTIVE_MODEL": "llama3",
-    "OLLAMA_URL": "http://localhost:11434/api/generate",
+    "THIN_MODEL": "deepseek-r1:7b",
     "DEFAULT_RULES": "besm_shell",
-    "DEFAULT_SETTING": "guild_rpg"
+    "DEFAULT_SETTING": "guild_rpg",
+    "DEFAULT_SETTINGS": []
 }
 
 # Write defaults if settings.json does not exist
@@ -41,6 +42,7 @@ def load_settings() -> dict:
 
 SETTINGS = load_settings()
 ACTIVE_MODEL = SETTINGS.get("ACTIVE_MODEL", "llama3")
-OLLAMA_URL = SETTINGS.get("OLLAMA_URL", "http://localhost:11434/api/generate")
+THIN_MODEL = os.environ.get("CHRONOS_THIN_MODEL", SETTINGS.get("THIN_MODEL", "deepseek-r1:7b"))
 DEFAULT_RULES = SETTINGS.get("DEFAULT_RULES", "besm_shell")
 DEFAULT_SETTING = SETTINGS.get("DEFAULT_SETTING", "guild_rpg")
+DEFAULT_SETTINGS = SETTINGS.get("DEFAULT_SETTINGS", [])

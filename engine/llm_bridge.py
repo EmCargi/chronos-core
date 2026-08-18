@@ -3,9 +3,10 @@ import re
 import json
 import time
 import logging
-import requests
 from typing import Dict, Any, Tuple, Optional
-from .config import ACTIVE_MODEL, OLLAMA_URL, DEFAULT_RULES
+from .config import ACTIVE_MODEL, DEFAULT_RULES, THIN_MODEL
+from core.ollama import default_chain, post_json
+from core.reasoning import strip_reasoning_tags
 
 logger = logging.getLogger("ChronosCore.LLMBridge")
 
@@ -45,9 +46,13 @@ class LLMBridge:
     """
     Decoupled bridge to handle local LLM semantic queries, narrative generations,
     prompt template compiling, and response payload validation.
+
+    Inference routes through the canonical Ollama fallback chain (dev/core/ollama.py) —
+    big rig first, thin client as last resort. Per-engine model names so each
+    machine serves the models it actually hosts.
     """
-    def __init__(self, endpoint_url: Optional[str] = None):
-        self.endpoint_url = endpoint_url or OLLAMA_URL
+    def __init__(self):
+        pass
 
     def compile_system_frame(self, prompt_type: Optional[str], character_vitals: dict, active_node: dict) -> str:
         """
@@ -98,51 +103,39 @@ class LLMBridge:
         return template.format_map(SafeFormatter(**replacements))
 
     def dispatch_ollama_turn(self, model_name: Optional[str], complete_context: str, user_input: str) -> dict:
-        """
-        Utilizes requests to execute a local inference dispatch call to Ollama.
-        Tracks latencies and API response transmission outcomes.
-        """
+        """Dispatch one inference turn through the Ollama fallback chain."""
         model = model_name or ACTIVE_MODEL
-        payload = {
-            "model": model,
+        chain = default_chain(model, THIN_MODEL)
+
+        payload_builder = lambda m: {
+            "model": m,
             "prompt": complete_context + user_input,
             "stream": False,
-            "options": {
-                "temperature": 0.3,
-                "num_predict": 1024
-            }
+            "options": {"temperature": 0.3, "num_predict": 1024},
         }
-        
-        logger.info(f"Dispatching Ollama turn with model '{model}' to endpoint '{self.endpoint_url}'...")
+
+        logger.info(f"Dispatching Ollama turn with model '{model}' via fallback chain...")
         start_time = time.time()
 
         try:
-            response = requests.post(self.endpoint_url, json=payload, timeout=90)
+            data = post_json("/api/generate", payload_builder, chain)
             latency = time.time() - start_time
-            logger.info(f"Ollama inference completed in {latency:.4f} seconds with status code {response.status_code}.")
-            
-            if response.status_code == 200:
-                result = response.json()
-                return {
-                    "success": True,
-                    "response": result.get("response", ""),
-                    "latency": latency,
-                    "raw": result
-                }
-            else:
-                logger.error(f"Ollama server returned error status: {response.status_code}")
-                return {
-                    "success": False,
-                    "error": f"HTTP error {response.status_code}",
-                    "latency": latency
-                }
+            logger.info(f"Ollama inference completed in {latency:.4f} seconds.")
+
+            raw_text = data.get("response", "")
+            return {
+                "success": True,
+                "response": strip_reasoning_tags(raw_text),
+                "latency": latency,
+                "raw": data,
+            }
         except Exception as e:
             latency = time.time() - start_time
             logger.error(f"Failed to dispatch inference turn: {e}")
             return {
                 "success": False,
                 "error": str(e),
-                "latency": latency
+                "latency": latency,
             }
 
     def inspect_llm_output(self, raw_response: str) -> Tuple[str, dict]:

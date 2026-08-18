@@ -26,5 +26,5 @@ from .economy import (
     add_item,
 )
 from .llm_bridge import LLMBridge
-from .config import ACTIVE_MODEL, OLLAMA_URL, DEFAULT_RULES, DEFAULT_SETTING
+from .config import ACTIVE_MODEL, THIN_MODEL, DEFAULT_RULES, DEFAULT_SETTING
 from .batch_ingest import run_auto_ingest

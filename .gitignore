@@ -18,8 +18,7 @@ ITEMS_ECONOMY_PLAN.md
 # One-shot migration script with character backstory/psychology hardcoded
 # as string literals (sixth guard, personas, narrative levers) — confidential
 # IP, not just a name reference. Also flagged as root clutter in the handoff.
-backfill_besa.py
-
+# backfill_besm.py archived to dev/archive/chronos-core/ (2026-08-14)
 # Virtual environment
 venv/
 .venv/

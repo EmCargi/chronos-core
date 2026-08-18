@@ -15,6 +15,32 @@ from engine import (
     CharacterSchema,
     NodeSchema,
     execute_action_check,
+    check_shock,
+    check_incapacitation,
+    check_poison_resistance,
+    check_sanity,
+    check_catastrophic_damage,
+    resolve_combat_roll,
+    resolve_attack_damage,
+    character_scv,
+    social_damage,
+    falling_damage,
+    range_obstacle,
+    size_lookup,
+    size_knockback,
+    wound_obstacle,
+    sanity_obstacle,
+    hp_recovery,
+    ep_recovery,
+    technique_obstacle_reduction,
+    technique_edge_bonus,
+    defect_hp_modifier,
+    defect_damage_modifier,
+    defect_achilles_multiplier,
+    defect_bane_damage,
+    defect_blocks_recovery,
+    defect_shortcoming_obstacle,
+    defect_sensory_obstacle,
     init_db,
     run_db_checkpoint,
     save_runtime_snapshot,
@@ -32,7 +58,7 @@ from engine import (
     use_item,
     LLMBridge,
     ACTIVE_MODEL,
-    OLLAMA_URL,
+    THIN_MODEL,
     DEFAULT_RULES,
     DEFAULT_SETTING
 )
@@ -57,12 +83,14 @@ def make_progress_bar(current: int, maximum: int, color: str) -> str:
 
 def _roster_dict_to_char(rc: dict) -> CharacterSchema:
     """
-    Convert a roster DB dict to a CharacterSchema with all BESA fields populated.
+    Convert a roster DB dict to a CharacterSchema with all BESM fields populated.
     Centralizes the JSON parsing for combat_techniques, skills, defects.
     """
     import json
     char = CharacterSchema(
         name=rc["name"],
+        gender=rc.get("gender", ""),
+        race=rc.get("race", ""),
         stat_body=rc["stat_body"],
         stat_mind=rc["stat_mind"],
         stat_soul=rc["stat_soul"],
@@ -74,6 +102,7 @@ def _roster_dict_to_char(rc: dict) -> CharacterSchema:
     char.combat_techniques = json.loads(rc.get("combat_techniques", "[]"))
     char.skills = json.loads(rc.get("skills", "[]"))
     char.defects = json.loads(rc.get("defects", "[]"))
+    char.spellbook = json.loads(rc.get("spellbook", "[]"))
     return char
 
 
@@ -161,7 +190,7 @@ def make_bottom_panel(narrative_history: list[str]) -> Panel:
 def build_vitals_with_full_loadout(setting_id: str, char: CharacterSchema) -> dict:
     """
     Compiles the FULL character loadout for the LLM shell. Injects narrative-syntax
-    fields (Sixth Guard, Structural Fault, Three Levers) AND BESA rules fields
+    fields (Sixth Guard, Structural Fault, Three Levers) AND BESM rules fields
     (Combat Techniques, Skills, Defects, Shock Value) from the roster DB.
     Falls back to empty defaults if the character has no data.
     """
@@ -183,7 +212,7 @@ def build_vitals_with_full_loadout(setting_id: str, char: CharacterSchema) -> di
         "structural_fault": "",
         "sixth_guard": "",
         "levers": "",
-        # BESA rules
+        # BESM rules
         "combat_techniques": [],
         "skills": [],
         "defects": [],
@@ -374,6 +403,25 @@ def main():
                 for line in roster_text.splitlines():
                     narrative_history.append(f"[dim]{line}[/dim]")
 
+            # Action: /lore (show active setting narrative architecture)
+            elif player_input.lower() == "/lore":
+                from engine.guild_roster import get_roster_connection
+                with get_roster_connection() as conn:
+                    row = conn.execute(
+                        "SELECT name, description, setting_lore FROM settings WHERE setting_id = ?",
+                        (active_setting_id,)
+                    ).fetchone()
+                if row:
+                    narrative_history.append(f"[bold gold1]═══ SETTING: {row[0]} ═══[/bold gold1]")
+                    if row[1]:
+                        narrative_history.append(f"  [dim]{row[1]}[/dim]")
+                    if row[2]:
+                        for line in row[2].split('. '):
+                            if line.strip():
+                                narrative_history.append(f"  {line.strip()}.")
+                else:
+                    narrative_history.append("[bold yellow]System:[/bold yellow] No lore available for current setting.")
+
             # Action: /settings (list all registered settings)
             elif player_input.lower() == "/settings":
                 from engine.guild_roster import list_settings
@@ -494,7 +542,7 @@ def main():
                 for line in inv_text.splitlines():
                     narrative_history.append(f"[dim]{line}[/dim]")
 
-            # Action: /loadout (show full BESA build)
+            # Action: /loadout (show full BESM build)
             elif player_input.lower() == "/loadout":
                 from engine.guild_roster import get_character_loadout, format_loadout_summary
                 loadout = get_character_loadout(active_setting_id, char.name)
@@ -588,6 +636,291 @@ def main():
                         save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name)
                     else:
                         narrative_history.append(f"[bold red]Use Failed:[/bold red] {msg}")
+
+            # ── BESM ENGINE COMMANDS ───────────────────────────────────────
+
+            # Action: /engine (show available engine commands)
+            elif player_input.lower() == "/engine":
+                narrative_history.append("[bold yellow]System:[/bold yellow] BESM Engine Commands:")
+                cmds = [
+                    "/shock <dmg>", "/resist <poison|sleep|paralysis> [blight]",
+                    "/fall <meters>", "/range <max> <distance>",
+                    "/size <rank>", "/defence <dmg> [AR] [FF_AR] [pen]",
+                    "/scv", "/sanity <mild|mod|major|severe|cat>",
+                    "/recover", "/techniques", "/defects",
+                ]
+                for c in cmds:
+                    narrative_history.append(f"  [dim]{c}[/dim]")
+
+            # Action: /shock <damage> (check shock/knockout)
+            elif player_input.lower().startswith("/shock"):
+                parts = player_input.split()
+                if len(parts) < 2:
+                    narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /shock <damage_taken>")
+                else:
+                    try:
+                        dmg = int(parts[1])
+                    except ValueError:
+                        narrative_history.append("[bold yellow]System:[/bold yellow] Damage must be an integer.")
+                    else:
+                        r = check_shock(char, dmg)
+                        if not r["triggered"]:
+                            narrative_history.append(f"[bold green]Engine:[/bold green] {dmg} damage — below SV ({char.shock_value_computed}). No shock check triggered.")
+                        elif r["status_key"] is None:
+                            narrative_history.append(f"[bold green]Engine:[/bold green] {r['severity']} shock check PASSED (roll {r['roll']}+Soul{char.stat_soul}={r['total']} vs TN {r['target']}).")
+                        elif r["status_key"] == "shocked":
+                            narrative_history.append(f"[bold red]Engine:[/bold red] SHOCKED! Roll {r['roll']}+Soul{char.stat_soul}={r['total']} vs TN {r['target']} — margin {r['margin']}. Stunned — lose next action.")
+                        else:
+                            narrative_history.append(f"[bold red]Engine:[/bold red] UNCONSCIOUS! {r['unconscious_rounds']} rounds. Roll {r['roll']}+Soul{char.stat_soul}={r['total']} vs TN {r['target']} — margin {r['margin']} > Soul.")
+
+            # Action: /resist <type> (poison/incapacitation check)
+            elif player_input.lower().startswith("/resist"):
+                parts = player_input.split()
+                if len(parts) < 2:
+                    narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /resist <poison|sleep|paralysis> [blight_level|obstacle]")
+                else:
+                    rtype = parts[1].lower()
+                    if rtype == "poison":
+                        blight = int(parts[2]) if len(parts) > 2 else 1
+                        r = check_poison_resistance(char, blight)
+                        outcome = "PASSED (20% damage)" if r["success"] else "FAILED (full damage)"
+                        narrative_history.append(
+                            f"[bold {'green' if r['success'] else 'red'}]Engine:[/bold {'green' if r['success'] else 'red'}] "
+                            f"Blight {blight}: roll {r['roll']}+Body{char.stat_body}={r['total']} vs TN {r['target']} — {outcome}"
+                        )
+                    elif rtype in ("sleep", "paralysis", "incapacitation"):
+                        obs = parts[2] if len(parts) > 2 else "none"
+                        r = check_incapacitation(char, obs)
+                        outcome = "RESISTED" if r["success"] else "AFFECTED"
+                        narrative_history.append(
+                            f"[bold {'green' if r['success'] else 'red'}]Engine:[/bold {'green' if r['success'] else 'red'}] "
+                            f"{rtype}: roll {r['roll']}+Stat{max(char.stat_body, char.stat_soul)}={r['total']} vs TN {r['target']} "
+                            f"[{r.get('obstacle', 'none')}] — {outcome}"
+                        )
+                    else:
+                        narrative_history.append(f"[bold yellow]System:[/bold yellow] Unknown resist type: {rtype}. Use: poison, sleep, paralysis.")
+
+            # Action: /fall <meters>
+            elif player_input.lower().startswith("/fall"):
+                parts = player_input.split()
+                if len(parts) < 2:
+                    narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /fall <meters>")
+                else:
+                    try:
+                        dist = float(parts[1])
+                    except ValueError:
+                        narrative_history.append("[bold yellow]System:[/bold yellow] Distance must be a number.")
+                    else:
+                        dmg = falling_damage(dist)
+                        narrative_history.append(f"[bold red]Engine:[/bold red] Fall from {dist}m → [bold white]{dmg} HP[/bold white] damage.")
+
+            # Action: /range <max> <distance>
+            elif player_input.lower().startswith("/range"):
+                parts = player_input.split()
+                if len(parts) < 3:
+                    narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /range <max_range> <distance>")
+                else:
+                    try:
+                        max_r, dist = float(parts[1]), float(parts[2])
+                    except ValueError:
+                        narrative_history.append("[bold yellow]System:[/bold yellow] Values must be numbers.")
+                    else:
+                        obs = range_obstacle(max_r, dist)
+                        if obs is None and dist <= max_r:
+                            narrative_history.append(f"[bold green]Engine:[/bold green] {dist}m from {max_r}m max — Effective range, no obstacle.")
+                        elif obs:
+                            narrative_history.append(f"[bold yellow]Engine:[/bold yellow] {dist}m from {max_r}m max — {obs.title()} Obstacle.")
+                        else:
+                            narrative_history.append(f"[bold red]Engine:[/bold red] {dist}m — out of range (max {max_r}m).")
+
+            # Action: /size <rank>
+            elif player_input.lower().startswith("/size"):
+                parts = player_input.split()
+                if len(parts) < 2:
+                    narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /size <rank> (-3 to 6)")
+                else:
+                    try:
+                        rank = int(parts[1])
+                    except ValueError:
+                        narrative_history.append("[bold yellow]System:[/bold yellow] Rank must be an integer (-3 to 6).")
+                    else:
+                        info = size_lookup(rank)
+                        if info:
+                            narrative_history.append(
+                                f"[bold white]Size {rank} — {info['category']}[/bold white] | "
+                                f"Mass: {info['mass']} | Damage: {info['strength_damage']:+d} | "
+                                f"AR: {info['armour']:+d} | Ranged: {info['ranged_mod']:+d} | "
+                                f"Range×: {info['range_mult']}"
+                            )
+                            kb = size_knockback(rank, 0)
+                            if kb["auto_knockback"]:
+                                narrative_history.append(f"[bold red]  Auto Knockback: {kb['distance_meters']}m vs Medium target[/bold red]")
+                        else:
+                            narrative_history.append("[bold yellow]System:[/bold yellow] Unknown size rank. Range: -3 (Diminutive) to 6 (Colossal).")
+
+            # Action: /defence <damage> [AR] [FF_AR] [penetration_ranks]
+            elif player_input.lower().startswith("/defence"):
+                parts = player_input.split()
+                if len(parts) < 2:
+                    narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /defence <damage> [armour_AR] [force_field_AR] [penetration_ranks]")
+                else:
+                    try:
+                        dmg = int(parts[1])
+                        ar = int(parts[2]) if len(parts) > 2 else 0
+                        ff = int(parts[3]) if len(parts) > 3 else 0
+                        pen = int(parts[4]) if len(parts) > 4 else 0
+                    except ValueError:
+                        narrative_history.append("[bold yellow]System:[/bold yellow] All values must be integers.")
+                    else:
+                        r = resolve_attack_damage(dmg, armour_rating=ar, force_field_ar=ff,
+                                                   penetrating_ranks=pen,
+                                                   current_hp=char.current_hp or char.max_hp,
+                                                   max_hp=char.max_hp)
+                        narrative_history.append(
+                            f"[bold white]Defence Pipeline[/bold white] — {dmg} incoming → "
+                            f"FF {r['force_field_ar']}AR → {r['after_force_field']} | "
+                            f"Armour {r['effective_armour_ar']}AR → {r['after_armour']} | "
+                            f"Net: [bold red]{r['net_damage']} HP[/bold red]"
+                        )
+                        if r['hp_absorbed']:
+                            narrative_history.append(f"[bold green]  Absorbed: {r['hp_absorbed']} HP, {r['ep_absorbed']} EP[/bold green]")
+
+            # Action: /scv (show social combat value)
+            elif player_input.lower() == "/scv":
+                scv = character_scv(char)
+                sp = scv
+                demure = -2 * (next((d.get("rank",0) for d in (char.defects or []) if isinstance(d, dict) and d.get("name","").lower() == "demure"), 0))
+                narrative_history.append(
+                    f"[bold white]Social Profile:[/bold white] SCV={scv} (Mind{char.stat_mind}+Soul{char.stat_soul})/2"
+                    + (f" Demure{demure}" if demure else "")
+                    + f" | Society Points={sp} | Recovery: 1/hour"
+                )
+
+            # Action: /sanity <trauma> (sanity check)
+            elif player_input.lower().startswith("/sanity"):
+                parts = player_input.split()
+                trauma = parts[1].lower() if len(parts) > 1 else "mild"
+                sp_max = char.stat_mind + char.stat_soul
+                sp_current = sp_max  # default: full SP unless tracked elsewhere
+                r = check_sanity(char.stat_mind, char.stat_soul, sp_current, trauma)
+                obs = sanity_obstacle(r["new_sp"])
+                outcome = "PASSED" if r["passed"] else f"FAILED (-{r['sp_loss']} SP)"
+                narrative_history.append(
+                    f"[bold {'green' if r['passed'] else 'red'}]Engine:[/bold {'green' if r['passed'] else 'red'}] "
+                    f"{trauma.title()} trauma: roll {r['roll']}+{(char.stat_mind+char.stat_soul)//2}={r['total']} vs TN {r['target']} — {outcome}"
+                )
+                if obs:
+                    narrative_history.append(f"[bold red]  Sanity Spiral: {obs.title()} Obstacle on all rolls[/bold red]")
+
+            # Action: /recover (show recovery rates)
+            elif player_input.lower() == "/recover":
+                hp_day = hp_recovery(char.stat_body, 1)
+                ep_hour = ep_recovery(char.stat_mind, char.stat_soul, 1)
+                blocks = defect_blocks_recovery(char.defects or [])
+                narrative_history.append(
+                    f"[bold white]Recovery Rates:[/bold white] HP={hp_day}/day"
+                    + (" (×2 medical)" if not blocks["hp"] else " [red](BLOCKED: No Healing)[/red]")
+                    + f" | EP={ep_hour}/hour"
+                    + (" [red](BLOCKED: Nightmares)[/red]" if blocks["rest"] else "")
+                )
+
+            # Action: /techniques (show active technique effects)
+            elif player_input.lower() == "/techniques":
+                techs = char.combat_techniques or []
+                if not techs:
+                    narrative_history.append("[dim]No combat techniques equipped.[/dim]")
+                else:
+                    narrative_history.append("[bold white]Active Technique Effects:[/bold white]")
+                    for t in techs:
+                        if isinstance(t, dict):
+                            name = t.get("name", "?")
+                            lvl = t.get("level", 1)
+                            effects = []
+                            if technique_obstacle_reduction(techs, "range"):
+                                effects.append("range penalty removal")
+                            if technique_obstacle_reduction(techs, "called_shot"):
+                                effects.append("called shot reduction")
+                            if technique_edge_bonus(techs, "initiative"):
+                                effects.append(f"initiative {'Minor' if technique_edge_bonus(techs, 'initiative')==1 else 'Major'} Edge")
+                            if technique_edge_bonus(techs, "amplify_aim"):
+                                effects.append("Aim/Wait → Major Edge")
+                            narrative_history.append(f"  [bold]{name}[/bold] Lv{lvl}" + (f" — {', '.join(effects)}" if effects else ""))
+
+            # Action: /defects (show active defect effects)
+            elif player_input.lower() == "/defects":
+                defs = char.defects or []
+                if not defs:
+                    narrative_history.append("[dim]No defects.[/dim]")
+                else:
+                    narrative_history.append("[bold red]Active Defect Effects:[/bold red]")
+                    hp_mod = defect_hp_modifier(defs)
+                    dmg_mod = defect_damage_modifier(defs)
+                    blocks = defect_blocks_recovery(defs)
+                    achilles = defect_achilles_multiplier(defs, "")
+                    bane = defect_bane_damage(defs)
+                    if hp_mod:
+                        narrative_history.append(f"  Fragile: [red]{hp_mod} max HP[/red]")
+                    if dmg_mod:
+                        narrative_history.append(f"  Reduced Damage: [red]{dmg_mod} Damage Multiplier[/red]")
+                    if achilles > 1:
+                        narrative_history.append(f"  Achilles Heel: [red]×{achilles:.0f} damage from source[/red]")
+                    if bane:
+                        narrative_history.append(f"  Bane: [red]{bane} dmg/round[/red]")
+                    if blocks["hp"]:
+                        narrative_history.append(f"  No Healing: [red]blocked[/red]")
+                    if blocks["rest"]:
+                        narrative_history.append(f"  Nightmares: [red]rest recovery blocked[/red]")
+                    if defect_sensory_obstacle(defs):
+                        narrative_history.append(f"  Sensory Impairment: [red]Major Obstacle on perception[/red]")
+                    for d in defs:
+                        if isinstance(d, dict):
+                            short = defect_shortcoming_obstacle(defs, d.get("aspect", ""))
+                            if short:
+                                narrative_history.append(f"  Shortcoming ({d.get('aspect','?')}): [red]{short.title()} Obstacle[/red]")
+
+            # Action: /location <name> (look up a location from the atlas)
+            elif player_input.lower().startswith("/location"):
+                parts = player_input.split()
+                if len(parts) < 2:
+                    from engine.guild_roster import location_summary
+                    narrative_history.append(f"[bold yellow]System:[/bold yellow] Location Atlas:")
+                    for line in location_summary(active_setting_id).splitlines():
+                        narrative_history.append(line)
+                else:
+                    from engine.guild_roster import get_location
+                    name = " ".join(parts[1:])
+                    loc = get_location(active_setting_id, name)
+                    if loc:
+                        narrative_history.append(f"[bold cyan]═══ LOCATION: {loc['name']} [{loc['location_type']}] ═══[/bold cyan]")
+                        narrative_history.append(f"  Region: {loc['region']} | Travel: {loc['travel_from_capital'] or 'N/A'}")
+                        narrative_history.append(f"  [dim]{loc['description']}[/dim]")
+                        if loc['notes']:
+                            narrative_history.append(f"  [italic]{loc['notes']}[/italic]")
+                    else:
+                        narrative_history.append(f"[bold yellow]System:[/bold yellow] No location matching '{name}'. Try /location alone to list all.")
+
+            # Action: /threat <name> (look up a threat from the bestiary)
+            elif player_input.lower().startswith("/threat"):
+                parts = player_input.split()
+                if len(parts) < 2:
+                    from engine.guild_roster import threat_summary
+                    narrative_history.append(f"[bold yellow]System:[/bold yellow] Threat Index:")
+                    for line in threat_summary(active_setting_id).splitlines():
+                        narrative_history.append(line)
+                else:
+                    from engine.guild_roster import get_threat
+                    name = " ".join(parts[1:])
+                    t = get_threat(active_setting_id, name)
+                    if t:
+                        from engine.models import size_lookup, size_strength_damage, size_armour_rating
+                        narrative_history.append(f"[bold red]═══ THREAT: {t['name']} [{t['threat_type']}] ═══[/bold red]")
+                        narrative_history.append(f"  Size {t['size_rank']} | HP {t['max_hp']} | AR {t['armour_rating']} | DMG {t['base_damage']}")
+                        narrative_history.append(f"  Body {t['stat_body']} Mind {t['stat_mind']} Soul {t['stat_soul']}")
+                        narrative_history.append(f"  [dim]{t['description']}[/dim]")
+                        if t['lore']:
+                            narrative_history.append(f"  [italic]{t['lore']}[/italic]")
+                    else:
+                        narrative_history.append(f"[bold yellow]System:[/bold yellow] No threat matching '{name}'. Try /threat alone to list all.")
 
             # Action: /attack
             elif player_input == "/attack":
