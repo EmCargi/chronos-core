@@ -59,6 +59,22 @@ from engine import (
     seed_besm_catalog,
     besm_catalog_summary,
     besm_catalog_matches,
+    get_scene_effects,
+    tick_scene_effects,
+    compute_tcr,
+    resolve_diceless_combat,
+    hedged_check,
+    resolve_tactical_stance,
+    two_weapon_attack,
+    strike_to_wound,
+    touch_attack,
+    resolve_called_shot,
+    grapple_attack_edges,
+    grabbed_condition,
+    escape_grapple,
+    pin_condition,
+    multi_target_dispersion,
+    CALLED_SHOTS,
     LLMBridge,
     ACTIVE_MODEL,
     THIN_MODEL,
@@ -292,6 +308,18 @@ def load_campaign_module(setting_id: str, module_name: str | None = None) -> tup
         }
     }, "builtin_fallback"
 
+def _obstacle_label(weight: int) -> str:
+    """Turn an obstacle weight into its BESM-facing label for the TUI echo."""
+    if weight <= 0:
+        return "no obstacle"
+    return "Minor Obstacle" if weight == 1 else "Major Obstacle"
+
+def _edge_label(weight: int) -> str:
+    """Turn an edge weight into its BESM-facing label for the TUI echo."""
+    if weight <= 0:
+        return "no edge"
+    return "Minor Edge" if weight == 1 else "Major Edge"
+
 def main():
     # 1. Initialize SQLite session database and canonical setting roster
     init_db()
@@ -358,7 +386,7 @@ def main():
             
             # Temporarily pause live display to allow clean console stdin prompts
             live.stop()
-            console.print("[bold cyan]COMMANDS:[/bold cyan] [white]exit | examine | north | south | east | west | /attack | /loot | /roster | /settings | /setting <id> | /module <name> | /char <name> | /shop | /buy <item_id> | /wallet | /grant <silver> | /inventory | /loadout | /greetings | /startgreeting <n> | /use <item_id> | /provision [info] [filters] | auto-ingest[/white]")
+            console.print("[bold cyan]COMMANDS:[/bold cyan] [white]exit | examine | north | south | east | west | /attack | /loot | /roster | /settings | /setting <id> | /module <name> | /char <name> | /shop | /buy <item_id> | /wallet | /grant <silver> | /inventory | /loadout | /greetings | /startgreeting <n> | /use <item_id> | /effects | /provision [info] [filters] | /diceless | /maneuver | auto-ingest[/white]")
             try:
                 player_input = console.input("[bold magenta]Select action > [/bold magenta]").strip()
             except (KeyboardInterrupt, EOFError):
@@ -672,7 +700,7 @@ def main():
                     narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /use <item_id> (run /inventory to list).")
                 else:
                     item_id = parts[1].lower()
-                    ok, msg = use_item(active_setting_id, char.name, item_id)
+                    ok, msg = use_item(active_setting_id, char.name, item_id, node_id=active_node.node_id)
                     if ok:
                         narrative_history.append(f"[bold green]Item Used:[/bold green] {msg}")
                         # Refresh vitals display after healing/EP effects
@@ -702,6 +730,8 @@ def main():
                     "/size <rank>", "/defence <dmg> [AR] [FF_AR] [pen]",
                     "/scv", "/sanity <mild|mod|major|severe|cat>",
                     "/recover", "/techniques", "/defects",
+                    "/diceless <defender_cv> [AR] [extra_def] [edge]", "/diceless hedge <target> [stat]",
+                    "/maneuver <subcommand>", "/effects",
                 ]
                 for c in cmds:
                     narrative_history.append(f"  [dim]{c}[/dim]")
@@ -932,6 +962,230 @@ def main():
                             if short:
                                 narrative_history.append(f"  Shortcoming ({d.get('aspect','?')}): [red]{short.title()} Obstacle[/red]")
 
+            # Action: /diceless (diceless BESM — Extras Ch.9 TCR + Table-15)
+            elif player_input.lower().startswith("/diceless"):
+                parts = player_input.split()
+                sub = parts[1].lower() if len(parts) > 1 else "help"
+                if sub in ("usage", "help"):
+                    narrative_history.append("[bold yellow]System:[/bold yellow] /diceless usage:")
+                    narrative_history.append("[dim]  /diceless <defender_cv> [AR] [extra_defences] [edge] — pure-algebraic clash vs a challenge[/dim]")
+                    narrative_history.append("[dim]  /diceless hedge <target> [body|mind|soul] — auto-7 non-combat check (BESM4 p182)[/dim]")
+                    narrative_history.append("[dim]  edge for the attacker: minor | major[/dim]")
+                elif sub == "hedge":
+                    if len(parts) < 3:
+                        narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /diceless hedge <target> [body|mind|soul]")
+                    else:
+                        try:
+                            target = int(parts[2])
+                        except ValueError:
+                            narrative_history.append("[bold yellow]System:[/bold yellow] Target must be an integer.")
+                        else:
+                            stat_key = parts[3].lower() if len(parts) > 3 else "body"
+                            stat_map = {"body": char.stat_body, "mind": char.stat_mind, "soul": char.stat_soul}
+                            if stat_key not in stat_map:
+                                narrative_history.append("[bold yellow]System:[/bold yellow] Unknown stat. Use body, mind, or soul.")
+                            else:
+                                r = hedged_check(stat_map[stat_key], target)
+                                veredict = "PASSED" if r["success"] else "FAILED"
+                                narrative_history.append(
+                                    f"[bold {'green' if r['success'] else 'red'}]Engine:[/bold {'green' if r['success'] else 'red'}] "
+                                    f"Auto-7 ({r['rolled']}) + {stat_key.upper()}{r['total']-r['rolled']} = {r['total']} vs TN {target} — {veredict}"
+                                )
+                else:
+                    try:
+                        dcv = int(parts[1])
+                    except (IndexError, ValueError):
+                        narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /diceless <defender_cv> [AR] [extra_defences] [edge]")
+                    else:
+                        ar = int(parts[2]) if len(parts) > 2 else 0
+                        edef = int(parts[3]) if len(parts) > 3 else 0
+                        edge = parts[4].lower() if len(parts) > 4 else None
+                        if edge not in ("minor", "major"):
+                            if edge is not None:
+                                narrative_history.append("[bold yellow]System:[/bold yellow] Edge must be minor or major — ignoring.")
+                            edge = None
+                        attacker = {
+                            "combat_value": char.base_acv,
+                            "current_hp": char.current_hp if char.current_hp is not None else char.max_hp,
+                            "target_ar": ar,
+                            "target_extra_defences": edef,
+                        }
+                        if edge:
+                            attacker["edge"] = edge
+                        a = compute_tcr(**attacker)
+                        d = compute_tcr(combat_value=dcv)
+                        r = resolve_diceless_combat(a["tcr"], d["tcr"])
+                        band_title = r["band"].replace("_", " ").title()
+                        victor = "Attacker" if r["attacker_wins"] else "Defender"
+                        narrative_history.append(
+                            f"[bold white]Total Combat Roll[/bold white] — "
+                            f"Attacker {char.name}: TCR {a['tcr']} (CV {a['combat_value']}+HP {a['hp_mod']}"
+                            + (f"+Edge {a['edge_mod']}" if edge else "")
+                            + f"-AR {a['armour_mod']}-Def {a['defence_mod']}) | "
+                            f"Defender: TCR {d['tcr']} (CV {dcv})"
+                        )
+                        narrative_history.append(
+                            f"[bold {'green' if r['attacker_wins'] else 'red'}]Resolve:[/bold {'green' if r['attacker_wins'] else 'red'}] "
+                            f"MoS {r['mos']} → {band_title} ({r['duration']}). {victor} wins — "
+                            f"victor −{r['victor_hp_loss_pct']}% HP, opponent −{r['opponent_hp_loss_pct']}% HP."
+                        )
+
+            # Action: /maneuver (combat maneuver arsenal — stances, called shots, grappling)
+            elif player_input.lower().startswith("/maneuver"):
+                parts = player_input.split()
+                if len(parts) < 2:
+                    narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /maneuver <sub> (run '/maneuver list' for the menu).")
+                else:
+                    techs = char.combat_techniques or []
+                    sub = parts[1].lower()
+                    if sub in ("usage", "help", "list"):
+                        narrative_history.append("[bold yellow]System:[/bold yellow] Maneuver menu:")
+                        narrative_history.append("[dim]  stance <aim|wait|total_defence> [consecutive_rounds] [ranged] — tactical action[/dim]")
+                        narrative_history.append("[dim]  two-weapon <1|2> — 1 target minor obstacle, 2 targets major[/dim]")
+                        narrative_history.append("[dim]  strike <dmg> [area] [autofire] [spreading] — flat wound damage[/dim]")
+                        narrative_history.append("[dim]  touch [protected] — passive Minor Edge[/dim]")
+                        narrative_history.append("[dim]  called <shot> — disarm_melee|disarm_ranged|reduce_armour|bypass_armour|vital_spot|weak_point_*[/dim]")
+                        narrative_history.append("[dim]  grapple <defender_free_hands> [attacker_free_hands] [size_delta] — grab initiation[/dim]")
+                        narrative_history.append("[dim]  grabbed <grappler_body> [much_stronger] [much_weaker] — the Grabbed condition[/dim]")
+                        narrative_history.append("[dim]  escape <grappler_body> [damage_dealt] — break a grapple[/dim]")
+                        narrative_history.append("[dim]  pin — the Pinned condition[/dim]")
+                        narrative_history.append("[dim]  multi <num_targets> — dispersion across N defenders[/dim]")
+                    elif sub in ("stance", "aim", "wait", "total_defence"):
+                        stance = (parts[2] if sub == "stance" and len(parts) > 2 else sub).lower()
+                        cr = int(parts[3]) if sub == "stance" and len(parts) > 3 else 1
+                        ranged = len(parts) > 4 and parts[4].lower() in ("ranged", "true", "1") if sub == "stance" else False
+                        if stance not in ("aim", "wait", "total_defence"):
+                            narrative_history.append("[bold yellow]System:[/bold yellow] stance must be aim, wait, or total_defence.")
+                        else:
+                            r = resolve_tactical_stance(stance, has_ranged=ranged, consecutive_rounds=cr)
+                            if not r["valid"]:
+                                narrative_history.append(f"[bold red]Maneuver Denied:[/bold red] {r['reason']}")
+                            elif stance == "total_defence":
+                                narrative_history.append(
+                                    f"[bold cyan]Maneuver:[/bold cyan] Total Defence — {_edge_label(r['defence_edge'])} to defence; attacks off this round."
+                                )
+                            else:
+                                narrative_history.append(
+                                    f"[bold cyan]Maneuver:[/bold cyan] {stance.title()} (round {cr}) — {_edge_label(r['attack_edge'])} to next attack."
+                                )
+                    elif sub == "two-weapon":
+                        same = not (len(parts) > 2 and parts[2] in ("2", "two"))
+                        r = two_weapon_attack(same_target=same, techniques=techs)
+                        target_txt = "one target" if same else "two targets"
+                        if r["negated"]:
+                            narrative_history.append(f"[bold cyan]Maneuver:[/bold cyan] Two-Weapon attack ({target_txt}) — penalty negated by 'Two Weapons' technique.")
+                        else:
+                            narrative_history.append(f"[bold cyan]Maneuver:[/bold cyan] Two-Weapon attack ({target_txt}) — {_obstacle_label(r['obstacle'])}.")
+                    elif sub == "strike":
+                        try:
+                            base_dmg = int(parts[2])
+                        except (IndexError, ValueError):
+                            narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /maneuver strike <damage> [area] [autofire] [spreading]")
+                        else:
+                            flags = [p.lower() for p in parts[3:]]
+                            r = strike_to_wound(base_dmg, has_area="area" in flags,
+                                                has_autofire="autofire" in flags,
+                                                has_spreading="spreading" in flags)
+                            if r["valid"]:
+                                narrative_history.append(f"[bold cyan]Maneuver:[/bold cyan] Strike to Wound — flat [bold white]{r['damage']} HP[/bold white] damage (un-multiplied).")
+                            else:
+                                narrative_history.append(f"[bold red]Maneuver Denied:[/bold red] {r['reason']}")
+                    elif sub == "touch":
+                        protected = len(parts) > 2 and parts[2].lower() in ("protected", "called", "spot")
+                        r = touch_attack(called_spot=protected)
+                        if r["requires_called_shot"]:
+                            narrative_history.append(f"[bold cyan]Maneuver:[/bold cyan] Touching a protected spot — {_edge_label(r['edge'])} but the called-shot obstacle still applies.")
+                        else:
+                            narrative_history.append(f"[bold cyan]Maneuver:[/bold cyan] Touch attack — passive {_edge_label(r['edge'])}.")
+                    elif sub == "called":
+                        shot = " ".join(parts[2:]).lower()
+                        if not shot:
+                            narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /maneuver called <shot>")
+                        else:
+                            r = resolve_called_shot(shot, techs)
+                            if not r["valid"]:
+                                narrative_history.append(f"[bold red]Maneuver Denied:[/bold red] {r['reason']}")
+                            else:
+                                ar_txt = {"ignore": "ignores armour", "half": "halves armour", "": "normal armour"}.get(r["ar_effect"], "normal armour")
+                                narrative_history.append(
+                                    f"[bold cyan]Called Shot:[/bold cyan] {shot.title()} — {_obstacle_label(r['obstacle'])}, "
+                                    f"{ar_txt}, damage ×{r['multiplier']}"
+                                    + (f", Body TN {r['body_tn']}" if r.get("body_tn") else "")
+                                    + (f", defender {_edge_label(r['defender_edge'])}" if r.get("defender_edge") else "")
+                                )
+                    elif sub in ("grapple", "grab"):
+                        try:
+                            dfh = int(parts[2])
+                        except (IndexError, ValueError):
+                            narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /maneuver grapple <defender_free_hands> [attacker_free_hands] [size_delta]")
+                        else:
+                            afh = int(parts[3]) if len(parts) > 3 else 2
+                            sdelta = int(parts[4]) if len(parts) > 4 else 0
+                            r = grapple_attack_edges(afh, dfh, sdelta)
+                            target_txt = "much weaker (penalties escalate)" if r["much_weaker"] else "even footing"
+                            narrative_history.append(
+                                f"[bold cyan]Maneuver:[/bold cyan] Grapple initiation — {_edge_label(r['edge'])} (hands {r['free_hand_delta']:+d}), {target_txt}."
+                            )
+                    elif sub == "grabbed":
+                        try:
+                            gbody = int(parts[2])
+                        except (IndexError, ValueError):
+                            narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /maneuver grabbed <grappler_body> [much_stronger] [much_weaker]")
+                        else:
+                            strong = len(parts) > 3 and parts[3].lower() in ("much_stronger", "strong", "true")
+                            weak = len(parts) > 4 and parts[4].lower() in ("much_weaker", "weak", "true")
+                            r = grabbed_condition(gbody, char.stat_body, target_much_stronger=strong, target_much_weaker=weak)
+                            if r["paralyzed"]:
+                                narrative_history.append(f"[bold red]Grabbed:[/bold red] {char.name} is much weaker — completely paralyzed, no rolls permitted.")
+                            else:
+                                narrative_history.append(
+                                    f"[bold cyan]Grabbed:[/bold cyan] {char.name} grappled by Body {gbody} vs Body {char.stat_body} — "
+                                    f"{_obstacle_label(r['melee_obstacle'])} on melee, {_obstacle_label(r['task_obstacle'])} on movement."
+                                )
+                    elif sub in ("escape", "grapple-escape"):
+                        try:
+                            gbody = int(parts[2])
+                        except (IndexError, ValueError):
+                            narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /maneuver escape <grappler_body> [damage_dealt]")
+                        else:
+                            dmg = int(parts[3]) if len(parts) > 3 else 0
+                            r = escape_grapple(char.stat_body, gbody, dmg)
+                            if r["auto_escape"]:
+                                narrative_history.append(f"[bold cyan]Escape:[/bold cyan] Pain Dissociation — {dmg} ≥ {r['threshold']} (5×Body {gbody}) — automatic escape.")
+                            else:
+                                narrative_history.append(f"[bold cyan]Escape:[/bold cyan] Opposed Body roll vs {gbody}; or deal {r['threshold']} HP in one shot to auto-escape.")
+                    elif sub == "pin":
+                        r = pin_condition()
+                        narrative_history.append(
+                            f"[bold cyan]Pinned:[/bold cyan] no attack, no defence — {_obstacle_label(r['escape_obstacle'])} on escape rolls."
+                        )
+                    elif sub in ("multi", "dispersion", "multi-target"):
+                        try:
+                            n = int(parts[2])
+                        except (IndexError, ValueError):
+                            narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /maneuver multi <num_targets>")
+                        else:
+                            r = multi_target_dispersion(n, techs)
+                            narrative_history.append(
+                                f"[bold cyan]Maneuver:[/bold cyan] {n} targets, one attack roll — {_obstacle_label(r['obstacle'])}"
+                                + (f", defenders get {_edge_label(r['defender_edge'])}" if r["defender_edge"] else "")
+                                + (" (unified roll)" if r.get("unified_roll") else "")
+                            )
+                    else:
+                        narrative_history.append(f"[bold yellow]System:[/bold yellow] Unknown maneuver '{sub}'. Run '/maneuver list' for the menu.")
+
+            # Action: /effects (list active scene effects at the current node)
+            elif player_input.lower() == "/effects":
+                effects = get_scene_effects(session_id, active_node.node_id)
+                if not effects:
+                    narrative_history.append("[bold yellow]System:[/bold yellow] No active scene effects at this node.")
+                else:
+                    narrative_history.append(f"[bold yellow]System:[/bold yellow] Active scene effects at '{active_node.title}':")
+                    for e in effects:
+                        narrative_history.append(
+                            f"  [bold cyan]{e['kind']}[/bold cyan] ({e['rounds_remaining']} round{'s' if e['rounds_remaining'] != 1 else ''} left) [dim]{e['description']}[/dim]"
+                        )
+
             # Action: /location <name> (look up a location from the atlas)
             elif player_input.lower().startswith("/location"):
                 parts = player_input.split()
@@ -1128,6 +1382,9 @@ def main():
                             if success:
                                 active_node = NodeSchema(**target_node_data)
                                 save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name)
+                                _expired = tick_scene_effects(session_id, active_node.node_id)
+                                if _expired:
+                                    narrative_history.append(f"[dim]System: {_expired} scene effect(s) expired as a round passed at '{active_node.title}'.[/dim]")
                                 narrative_history.append(f"[bold cyan]System:[/bold cyan] Moved to [bold green]{active_node.title}[/bold green].")
                             else:
                                 narrative_history.append("[bold yellow]AI Director:[/bold yellow] You failed to bypass the obstacle and remain at your position.")
@@ -1138,6 +1395,9 @@ def main():
                         # Move freely
                         active_node = NodeSchema(**target_node_data)
                         save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name)
+                        _expired = tick_scene_effects(session_id, active_node.node_id)
+                        if _expired:
+                            narrative_history.append(f"[dim]System: {_expired} scene effect(s) expired as a round passed at '{active_node.title}'.[/dim]")
                         narrative_history.append(f"[bold cyan]System:[/bold cyan] Moved to [bold green]{active_node.title}[/bold green].")
                 else:
                     narrative_history.append(f"[bold red]System:[/bold red] You cannot go {direction.upper()} from here.")

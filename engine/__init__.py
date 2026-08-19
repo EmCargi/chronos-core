@@ -1,4 +1,20 @@
-from .models import CharacterSchema, NodeSchema, execute_action_check
+from .models import (
+    CharacterSchema, NodeSchema,
+    execute_action_check, check_shock, check_incapacitation,
+    check_poison_resistance, check_sanity, check_catastrophic_damage,
+    resolve_combat_roll, resolve_attack_damage, character_scv,
+    social_damage, falling_damage, range_obstacle, size_lookup,
+    size_knockback, wound_obstacle, sanity_obstacle, hp_recovery,
+    ep_recovery, technique_obstacle_reduction, technique_edge_bonus,
+    defect_hp_modifier, defect_damage_modifier, defect_achilles_multiplier,
+    defect_bane_damage, defect_blocks_recovery, defect_shortcoming_obstacle,
+    defect_sensory_obstacle,
+    compute_tcr, resolve_diceless_combat, diceless_battle, hedged_check,
+    resolve_tactical_stance, two_weapon_attack, strike_to_wound,
+    touch_attack, resolve_called_shot, grapple_attack_edges,
+    grabbed_condition, escape_grapple, pin_condition, multi_target_dispersion,
+    CALLED_SHOTS,
+)
 from .state_manager import (
     get_db_connection,
     run_db_checkpoint,
@@ -9,6 +25,9 @@ from .state_manager import (
     log_narrative_turn,
     add_loot_to_inventory,
     get_character_inventory,
+    get_scene_effects,
+    apply_scene_effect,
+    tick_scene_effects,
     DB_PATH
 )
 from .economy import (

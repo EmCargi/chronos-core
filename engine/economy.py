@@ -10,6 +10,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 ROSTER_PATH = os.path.join(DATA_DIR, "guild_rpg_roster.db")
 SESSION_PATH = os.path.join(DATA_DIR, "chronos_session.db")
+SESSION_SESSION_ID = "chronos_interactive_session"
 
 # Quest-economy silver brackets keyed by rank tier.
 RANK_BRACKETS = {
@@ -23,9 +24,8 @@ RANK_BRACKETS = {
 
 # Idempotent seed catalog: Jaxon the Alchemist's shop (Guild RPG economy
 # doc prices) plus Rosivelle's permanent gear as reference permanents.
-# NOTE: only heal / ep / cure effect kinds are runtime-consumable in use_item()
-# today; the repel/campsite and blind/flash kinds are catalog-complete but
-# unwired, and use_item() reports them as "no usable effect".
+# NOTE: heal / ep / cure act on vitals; repel_animals / blind bind a scene
+# effect to the active node (see use_item). All five kinds are runnable.
 SEED_CATALOG = [
     {
         "item_id": "basic_healing_salve",
@@ -423,9 +423,13 @@ def inventory_summary(setting_id: str, character_name: str) -> str:
         )
     return "\n".join(lines)
 
-def use_item(setting_id: str, character_name: str, item_id: str) -> tuple:
-    """Consumes a consumable item, applying its effect to the character's vitals.
-    Returns (ok, message)."""
+def use_item(setting_id: str, character_name: str, item_id: str,
+             node_id: str | None = None) -> tuple:
+    """Consumes a consumable item, applying its effect to the character's vitals
+    or to the current scene. Returns (ok, message).
+
+    Scene-effect consumables (repel_animals, blind) require a node_id — they
+    attach a transient effect to the location whose encounter they alter."""
     item = get_item(setting_id, item_id)
     if not item:
         return False, f"Unknown item '{item_id}' in setting '{setting_id}'."
@@ -434,8 +438,11 @@ def use_item(setting_id: str, character_name: str, item_id: str) -> tuple:
 
     effect = item.get("effect") or {}
     kind = effect.get("kind")
-    if kind not in ("heal", "ep", "cure"):
+    if kind not in ("heal", "ep", "cure", "repel_animals", "blind"):
         return False, f"{item['name']} has no usable effect."
+
+    if kind in ("repel_animals", "blind") and not node_id:
+        return False, f"{item['name']} needs an active location to take effect."
 
     # Check the character actually owns one.
     with get_economy_connection() as conn:
@@ -454,6 +461,12 @@ def use_item(setting_id: str, character_name: str, item_id: str) -> tuple:
         delta = effect.get("ep", 0)
     elif kind == "cure":
         pass  # status-clearing effects have no numeric vitals change
+    elif kind in ("repel_animals", "blind"):
+        # Scene effect: bind to the active node so the encounter layer knows.
+        from .state_manager import apply_scene_effect
+        rounds = effect.get("duration_rounds", 1)
+        apply_scene_effect(SESSION_SESSION_ID, node_id, kind,
+                           item.get("description", ""), rounds)
 
     if delta:
         try:
@@ -462,14 +475,14 @@ def use_item(setting_id: str, character_name: str, item_id: str) -> tuple:
                 sess.row_factory = _sq.Row
                 vital = sess.execute(
                     "SELECT current_hp, current_ep FROM character_vitals WHERE session_id = ? AND name = ?",
-                    ("chronos_interactive_session", character_name)
+                    (SESSION_SESSION_ID, character_name)
                 ).fetchone()
                 if vital is not None:
                     new_hp = vital["current_hp"] + (delta if kind == "heal" else 0)
                     new_ep = vital["current_ep"] + (delta if kind == "ep" else 0)
                     sess.execute(
                         "UPDATE character_vitals SET current_hp = ?, current_ep = ? WHERE session_id = ? AND name = ?",
-                        (new_hp, new_ep, "chronos_interactive_session", character_name)
+                        (new_hp, new_ep, SESSION_SESSION_ID, character_name)
                     )
         except Exception as e:
             logger.error(f"Failed to apply vitals for '{item_id}': {e}")
@@ -485,4 +498,8 @@ def use_item(setting_id: str, character_name: str, item_id: str) -> tuple:
             (setting_id, character_name, item_id)
         )
     logger.info(f"[{setting_id}] {character_name} used {item['name']}.")
+    if kind == "repel_animals":
+        return True, f"Used {item['name']}. Warded {node_id} — non-magical animals will avoid the area."
+    if kind == "blind":
+        return True, f"Used {item['name']}. Blinded the target group for {effect.get('duration_rounds', 1)} round(s)."
     return True, f"Used {item['name']}. ({'Restored ' + str(delta) + ' vitals.' if delta else 'Effect applied.'})"

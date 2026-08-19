@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))  # dev/
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))          # chronos-core/
 
 import engine.economy as economy
+from engine import state_manager
 
 
 class TestFibonacciPrice(unittest.TestCase):
@@ -276,6 +277,75 @@ class TestInventoryOperations(EconomyDBTestCase):
         economy.add_to_inventory("guild_rpg", "Hero", "phantom_mirror", 1)
         inv = economy.get_inventory("guild_rpg", "Hero")
         self.assertEqual(len(inv), 0)
+
+
+class SceneEffectTestCase(EconomyDBTestCase):
+    """Base for scene-effect tests: also points state_manager at the tmp session DB."""
+
+    def setUp(self):
+        super().setUp()
+        self._sm_patcher = patch.object(state_manager, "DB_PATH", self.tmp_session.name)
+        self._sm_patcher.start()
+        economy.seed_default_catalog("guild_rpg")
+
+    def tearDown(self):
+        self._sm_patcher.stop()
+        super().tearDown()
+
+
+class TestUseItemSceneEffects(SceneEffectTestCase):
+    def setUp(self):
+        super().setUp()
+        economy.add_to_inventory("guild_rpg", "Hero", "beast_repellent_powder", 1)
+        economy.add_to_inventory("guild_rpg", "Hero", "flash_powder_vial", 2)
+
+    def test_repel_requires_a_node(self):
+        """Scene-effect consumables must be used at a location — not consumed on miss."""
+        ok, msg = economy.use_item("guild_rpg", "Hero", "beast_repellent_powder")
+        self.assertFalse(ok)
+        self.assertIn("location", msg)
+        inv = economy.get_inventory("guild_rpg", "Hero")
+        powder = [i for i in inv if i["item_id"] == "beast_repellent_powder"][0]
+        self.assertEqual(powder["qty"], 1)
+
+    def test_repel_binds_ward_and_consumes(self):
+        ok, msg = economy.use_item("guild_rpg", "Hero", "beast_repellent_powder", node_id="node_camp")
+        self.assertTrue(ok)
+        effects = state_manager.get_scene_effects("chronos_interactive_session", "node_camp")
+        self.assertEqual(len(effects), 1)
+        self.assertEqual(effects[0]["kind"], "repel_animals")
+        self.assertEqual(effects[0]["rounds_remaining"], 1)
+        inv = economy.get_inventory("guild_rpg", "Hero")
+        powder = [i for i in inv if i["item_id"] == "beast_repellent_powder"]
+        self.assertFalse(powder)  # consumed down to zero → row deleted
+
+    def test_blind_binds_effect_with_duration(self):
+        ok, msg = economy.use_item("guild_rpg", "Hero", "flash_powder_vial", node_id="node_den")
+        self.assertTrue(ok)
+        effects = state_manager.get_scene_effects("chronos_interactive_session", "node_den")
+        self.assertEqual(len(effects), 1)
+        self.assertEqual(effects[0]["kind"], "blind")
+        self.assertEqual(effects[0]["rounds_remaining"], 1)
+
+    def test_reapply_refreshes_instead_of_duplicating(self):
+        """Same kind at the same node is an idempotent upsert, not a second row."""
+        economy.use_item("guild_rpg", "Hero", "flash_powder_vial", node_id="node_den")
+        economy.use_item("guild_rpg", "Hero", "flash_powder_vial", node_id="node_den")
+        effects = state_manager.get_scene_effects("chronos_interactive_session", "node_den")
+        self.assertEqual(len(effects), 1)
+
+    def test_tick_expires_blind_effect(self):
+        economy.use_item("guild_rpg", "Hero", "flash_powder_vial", node_id="node_den")
+        expired = state_manager.tick_scene_effects("chronos_interactive_session", "node_den")
+        self.assertGreaterEqual(expired, 1)
+        effects = state_manager.get_scene_effects("chronos_interactive_session", "node_den")
+        self.assertEqual(effects, [])
+
+    def test_get_scene_effects_unscoped_lists_all_nodes(self):
+        economy.use_item("guild_rpg", "Hero", "beast_repellent_powder", node_id="node_camp")
+        economy.use_item("guild_rpg", "Hero", "flash_powder_vial", node_id="node_den")
+        effects = state_manager.get_scene_effects("chronos_interactive_session")
+        self.assertEqual(len(effects), 2)
 
 
 if __name__ == "__main__":

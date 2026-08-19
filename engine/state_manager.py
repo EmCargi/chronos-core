@@ -71,6 +71,7 @@ def initialize_session_db(db_path: str) -> None:
         os.makedirs(db_dir, exist_ok=True)
         
     with sqlite3.connect(db_path) as conn:
+        ensure_scene_effects_table(conn)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS character_vitals (
                 session_id TEXT NOT NULL,
@@ -121,6 +122,97 @@ def init_db() -> None:
     initialize_session_db(DB_PATH)
     migrate_character_vitals_composite_key(DB_PATH)
     migrate_campaign_navigation_setting(DB_PATH)
+
+def ensure_scene_effects_table(conn) -> None:
+    """Creates the transient, node-bound effect ledger if absent. Idempotent so
+    older session DBs self-upgrade on launch without a destructive migration."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS scene_effects (
+            session_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            rounds_remaining INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (session_id, node_id, kind)
+        )
+    """)
+
+def apply_scene_effect(session_id: str, node_id: str, kind: str,
+                       description: str = "", rounds: int = 1) -> None:
+    """Upsert a transient, location-bound effect on the session DB.
+
+    Scene effects ride the campaign_navigation model: an effect attaches to a
+    node_id (the arena its consequence plays out in — the blinded monster group
+    at *this* encounter node, the animal ward over *this* campsite). Re-applying
+    the same kind at the same node refreshes its duration (idempotent)."""
+    rounds = max(1, int(rounds or 1))
+    with get_db_connection() as conn:
+        ensure_scene_effects_table(conn)
+        conn.execute("""
+            INSERT INTO scene_effects (session_id, node_id, kind, description, rounds_remaining)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (session_id, node_id, kind)
+            DO UPDATE SET description = excluded.description,
+                          rounds_remaining = excluded.rounds_remaining
+        """, (session_id, node_id, kind, description, rounds))
+
+def get_scene_effects(session_id: str, node_id: str | None = None) -> list:
+    """List active scene effects, newest first. Scoped to one node when given."""
+    with get_db_connection() as conn:
+        ensure_scene_effects_table(conn)
+        conn.row_factory = sqlite3.Row
+        if node_id:
+            rows = conn.execute(
+                "SELECT * FROM scene_effects WHERE session_id = ? AND node_id = ? "
+                "ORDER BY created_at DESC",
+                (session_id, node_id)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM scene_effects WHERE session_id = ? ORDER BY created_at DESC",
+                (session_id,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+def tick_scene_effects(session_id: str, node_id: str | None = None) -> int:
+    """Advance one round: decrement remaining rounds and drop expired effects.
+
+    Returns the number of effects that expired (deleted) so the caller can
+    narrate the consequence. Scoped to a node when given (one round passes at
+    the node being re-entered)."""
+    with get_db_connection() as conn:
+        ensure_scene_effects_table(conn)
+        if node_id:
+            conn.execute(
+                "UPDATE scene_effects SET rounds_remaining = rounds_remaining - 1 "
+                "WHERE session_id = ? AND node_id = ?",
+                (session_id, node_id)
+            )
+            conn.execute(
+                "DELETE FROM scene_effects WHERE session_id = ? AND node_id = ? "
+                "AND rounds_remaining <= 0",
+                (session_id, node_id)
+            )
+            expired = conn.execute(
+                "SELECT changes() AS c"
+            ).fetchone()[0]
+        else:
+            conn.execute(
+                "DELETE FROM scene_effects WHERE session_id = ? AND rounds_remaining <= 0",
+                (session_id,)
+            )
+            conn.execute(
+                "UPDATE scene_effects SET rounds_remaining = rounds_remaining - 1 "
+                "WHERE session_id = ?",
+                (session_id,)
+            )
+            conn.execute(
+                "DELETE FROM scene_effects WHERE session_id = ? AND rounds_remaining <= 0",
+                (session_id,)
+            )
+            expired = conn.execute("SELECT changes() AS c").fetchone()[0]
+    return expired
 
 def migrate_campaign_navigation_setting(db_path: str) -> None:
     """
