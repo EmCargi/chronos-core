@@ -345,6 +345,7 @@ Chronos Core is the engine inside the **digital-dm-project**, which unifies:
 9. ~~**Ingest the monster cards (big opportunity)**~~ → **Shipped 2026-08-18.** `stage_cards.py` staged the 94 statted cards; live sweep ingested 94/94. Shota roster **3 → 97**. The 245 lore-only cards will flow in once SxM2 stats are decoded — just re-run `stage_cards.py`.
 10. **Promote to big rig** — once stable, Megane handles the copy
 11. **Live-play the new commands** — confirm `/maneuver`/`/diceless`/`/effects` narrations read well in a real session (the LLM director carries the prose; the engine holds the numbers)
+12. **Full Guild RPG cast pullover (idea filed: `ideas/full-guild-cast-pullover.md`)** — the vault cast is ~36 entities (33 official files + 3 fan chars); the roster currently holds only **8 with Active Narrative Syntax**. Remaining ~28: official markdowns → BESM sheets/cards → `upsert_character()` → narrative-syntax synthesis (Nieven's 08-19 tuning is the style precedent: Sixth Guard must collapse, engine-native prose). Future pipeline session.
 
 ---
 
