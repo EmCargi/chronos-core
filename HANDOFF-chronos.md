@@ -2,7 +2,7 @@
 project: digital-dm
 date: 2026-08-16
 status: active
-test_count: 584 total (17 verify_dungeon + 27 models + 44 economy + 28 status_effects + 36 status_ailments + 34 combat_physics + 18 combat_modifiers + 27 size_scale + 28 defence_absorption + 27 extended_actions + 34 combat_techniques + 24 bond_progression + 38 sanity_recovery + 34 defects + 27 social_combat + 32 diceless + 46 combat_maneuvers + 19 card_to_besm + 6 stage_cards + 28 guild_roster + 10 batch_ingest) = 583 pass, 1 skip, all runnable (2026-08-18)
+test_count: 610 total (17 verify_dungeon + 27 models + 46 economy + 24 besm_catalog + 28 status_effects + 36 status_ailments + 34 combat_physics + 18 combat_modifiers + 27 size_scale + 28 defence_absorption + 27 extended_actions + 34 combat_techniques + 24 bond_progression + 38 sanity_recovery + 34 defects + 27 social_combat + 32 diceless + 46 combat_maneuvers + 19 card_to_besm + 6 stage_cards + 28 guild_roster + 10 batch_ingest) = 609 pass, 1 skip, all runnable (2026-08-18)
 git: "local-only, engine code scoped (2026-08-14)"
 ---
 # Chronos Core — Handoff Document
@@ -30,7 +30,9 @@ Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sa
 | 2026-08-18 | — | `2026-08-18-chronos-core-bond-progression-backfill.md` | **Bond Progression Framework V2.0 documented** — the framework in `engine/models.py` (4 phases, 7 gains, 4 losses, Shared Triumph / Favoritism Tax / group stats) and its 24-test suite were untracked and untallied until the git alignment. Now: file-map row, What Works bullet, journal entry — the true 470-test state is fully on the record. |
 | 2026-08-18 | — | `2026-08-18-chronos-core-diceless-tcr.md` | **Diceless BESM shipped** (`engine/models.py`) — `compute_tcr()` implements Extras Ch.9 Total Combat Roll with per-term rounding, `resolve_diceless_combat()` maps MoS to Table-15 bands, `hedged_check()` gives the auto-7 non-combat path. 32 tests incl. the Kozoh/Azok canonical example (19 vs 17 → Slight Success). |
 | 2026-08-18 | — | `2026-08-18-chronos-core-combat-maneuvers.md` | **Combat Maneuvers arsenal shipped** (`engine/models.py`) — tactical stances (one per round: aim/wait escalate minor→major; total defence halts attacks), the full called-shot table, two-weapon attacks, strike-to-wound, touch attacks, the grapple/pin/escape state machine, and multi-target dispersion. 46 tests grounded in the Extras cheat sheet. |
-| 2026-08-18 | — | `2026-08-18-chronos-core-status-ailments.md` | **Status Ailments completed** (`engine/models.py`) — poison delivery vectors (injury/contact/ingested/inhaled with AR vs airtight/mask immunity, ingested ×2), continuing-decay ticks, field treatment vs Blight TN, sleep-break vs magic-only paralysis/stone, stun recovery at Body/hour, and the mind-control stack (gradient L1-6, opposed break + Mind Shield, against-nature edges, Exorcism clash). 36 tests. |
+| 2026-08-18 | — | `2026-08-18-chronos-core-status-ailments.md` | **Status Ailments completed** (`engine/models.py`) — poison delivery vectors (injury/contact/ingested/inhaled with AR vs airtight/mask immunity, ingested ×2), continuing-decay ticks, field treatment vs Blight TN, sleep-break vs magic-only paralysis/stone, stun recovery at Body/hour, and the mind-control stack (gradient L1-6, opposed break + Mind Shield, against-nature edges, Exorcism clash). 36 tests.
+| 2026-08-18 | — | `2026-08-18-chronos-core-shop-catalog-finalize.md` | **Shop catalog finalized to the AK docs.** Jaxon's full shelf now seeded: added **Beast-Repellent Powder (5 sp, D)** and **Flash-Powder Vial (20 sp, C)** with the doc effects; all six canonical shop prices verified (4 / 7 / 5 / 25 / 30 / 20 sp). 2 regression tests locked the doc prices. Economy 44 → 46, catalog 8 → 10. Priority #8 struck. |
+| 2026-08-18 | `changelog/proposals/2026-08-18-chronos-core-besm-item-catalog.md` | `2026-08-18-chronos-core-besm-item-catalog.md` | **BESM source-book items as reusable assets shipped.** `scripts/extract_besm_catalog.py` compiles the read-only ledger (105 weapons / 29 armor / 25 shields / 8 suits / 42 gear / 11 vehicles = **220 rows**) into `engine/besm_catalog.py`'s generated data block (fail-fast subtotal contract + atomic marker-block regeneration). `seed_besm_catalog(setting_id, eras, categories, item_types, price_cap_sp)` provisions any setting idempotently; `rank_for_cp()` derives silver-bracket guild ranks (0→D, >800 sp→S, SS GM-only). Counter-plan rulings all adopted; full suite 586 → 606 (20 new besm tests). | |
 
 ## Architecture Overview
 
@@ -73,7 +75,9 @@ chronos-core/
 | **`engine/`** | | | |
 | `engine/guild_roster.py` | Canonical roster DB — settings, characters (22 cols), power packs, BESM loadout CRUD | ~693 | — |
 | `engine/economy.py` | Item economy — items, wallets, inventory, Fibonacci pricing, rank-bracket consumables, seed catalog | ~461 | — |
-| `tests/test_economy.py` | Economy tests (44: Fibonacci, brackets, wallets, item CRUD, catalog, buy, inventory) | ~280 | 44 |
+| `engine/besm_catalog.py` | **BESM canon as reusable assets** — generated data block (220 items) + hand-written `rank_for_cp` / `seed_besm_catalog` / `besm_catalog_summary` | ~3,350 | — |
+| `tests/test_economy.py` | Economy tests (46: Fibonacci, brackets, wallets, item CRUD, catalog, buy, inventory) | ~290 | 46 |
+| `tests/test_besm_catalog.py` | BESM catalog tests (20: contract, bench parity, rank ladder, idempotent/filtered/non-destructive seeding) | ~230 | 20 |
 | `engine/llm_bridge.py` | Ollama dispatch, BESM field formatters (techniques/skills/defects → markdown), prompt compilation, SafeFormatter | ~273 | — |
 | `engine/state_manager.py` | Runtime session DB — vitals, navigation, chronology, checkpoint snapshots | ~285 | — |
 | `engine/batch_ingest.py` | Character card importer — staging/raw/ → setting detection → roster DB → processed/failed/ | ~308 | — |
@@ -187,7 +191,8 @@ class CharacterSchema(BaseModel):
 | Guild RPG characters | 8 (Eira, Rosivelle, Sylvara, Aglae, Tomoe, Liora, Nieven, Zarlen) | `data/guild_rpg_roster.db` |
 | Shota x Monsters characters | 97 (3 named + 94 ingested monster-boys from the 339-card corpus; **245 lore-only cards wait for SxM2 stats**) | `data/guild_rpg_roster.db` / `persona-etl/output/` |
 | Campaign modules | 6 (sandbox, C-rank trial, 5-room dungeon, forest labyrinth, training yard, Tomoe volcano) | `modules/` |
-| Item catalog (seeded) | 8 (healing salves, energy drafts, standard potions, etc.) | `data/guild_rpg_roster.db` |
+| Item catalog (seeded) | 10 (Jaxon's full shop: salve, draft, beast-repellent, potion, antidote, flash-powder + Rosivelle's permanents) | `data/guild_rpg_roster.db` |
+| BESM canon catalog (provisionable) | **220** (105 weapons, 29 armor, 25 shields, 8 suits, 42 gear/artifacts, 11 vehicles) — compiled from the source-book ledger | `engine/besm_catalog.py` + `BESM Rules/besm-weapons-armor-gear-reference.md` |
 | BESM rules reference files | 15 cheat sheets (~260 KB) + 2 source PDFs (53 MB) | `digital-dm-project/BESM Rules/` (local) |
 | Session run records | 2 | `SESSION_RUN_RECORD_*.md` |
 
@@ -198,7 +203,8 @@ class CharacterSchema(BaseModel):
 - Active Narrative Syntax injection (Structural Fault, Sixth Guard, Three Levers)
 - Tri-Stat derived vitals (HP, EP, ACV, DCV, Shock Value)
 - 2d6 action checks with difficulty targets
-- Item economy (Fibonacci permanents, rank-bracket consumables, wallets, inventory)
+- Item economy (Fibonacci permanents, rank-bracket consumables, wallets, inventory) — **Jaxon's shop fully seeded 2026-08-18** (Beast-Repellent Powder 5 sp + Flash-Powder Vial 20 sp added; all six doc prices regression-locked, catalog 8 → 10)
+- **BESM canon as reusable assets (2026-08-18)** — `engine/besm_catalog.py` carries the full source-book item canon (**220 items**, compiled deterministically from the read-only ledger by `scripts/extract_besm_catalog.py` with a fail-fast subtotal contract). `seed_besm_catalog(setting_id, eras, categories, item_types, price_cap_sp)` provisions any setting idempotently (INSERT OR IGNORE — never stomps authored rows), and `rank_for_cp()` assigns silver-bracket guild ranks (0→D … >800 sp→S). All prices flow through the existing Fibonacci engine; the live `guild_rpg` shop is never auto-seeded (explicit-only, per 2026-08-18 synthesis).
 - Shop commands (`/shop`, `/buy`, `/wallet`, `/inventory`, `/use`)
 - Character card auto-ingest (staging/raw/ → setting detection → roster DB)
 - Character Creator Wizard (interactive, CP-budget checks)
@@ -269,13 +275,16 @@ venv/bin/python chronos.py   # TUI directly
 | `/inventory` | Show owned items |
 | `/loadout` | Show full BESM build |
 | `/use <item_id>` | Consume a consumable |
+| `/provision [info] [filters]` | GM-seed the BESM canon into the active setting's shop. Filters: `eras=archaic,modern`, `categories=melee`, `types=weapon`, `cap=800`; bare token = era filter; `info` = preview only |
 | `auto-ingest` | Run staging sweep |
 
 ### Register a new setting
 1. Add setting entry to `DEFAULT_SETTINGS` in `config/settings.json`
 2. Seed roster characters via `upsert_character()`
 3. Create a campaign module JSON in `modules/`
-4. Optionally seed an item catalog in `engine/economy.py`
+4. Provision a shop from the BESM canon (optional, explicit-only):
+   `seed_besm_catalog("<setting>", eras=["archaic"], price_cap_sp=800)`
+   — or hand-seed with `add_item()` from `engine.economy.py`.
 
 ### Add a new character
 1. Create a SillyTavern V2 card `.json` with `[Setting:]`, `[Guild Rank:]`, stats, and Narrative Syntax tags
@@ -324,7 +333,7 @@ Chronos Core is the engine inside the **digital-dm-project**, which unifies:
 5. ~~**Move DEFAULT_SETTINGS to config**~~ ✅ Done 2026-08-14 — list now lives in `config/settings.json`, loaded by `engine/config.py`, imported by `engine/guild_roster.py`
 6. ~~**Archive `backfill_besm.py`**~~ ✅ Done 2026-08-14 — moved to `dev/archive/chronos-core/backfill_besm.py`
 7. **Tune Nieven's narrative syntax** — needs extended live play
-8. **Apply Item CP pricing** to shop catalog refinement
+8. ~~**Apply Item CP pricing** to shop catalog refinement~~ → **Done 2026-08-18.** The Fibonacci/rank-bracket math already was the price engine; the final gap was catalog completeness. Jaxon's shelf now matches the AK economy docs item-for-item: Beast-Repellent Powder (5 sp, D) and Flash-Powder Vial (20 sp, C) added, prices regression-locked, catalog 8 → 10. Two consumables (`repel_animals`, `blind`) are catalog-complete but unwired in `use_item()` — future status/encounter work.
 9. ~~**Ingest the monster cards (big opportunity)**~~ → **Shipped 2026-08-18.** `stage_cards.py` staged the 94 statted cards; live sweep ingested 94/94. Shota roster **3 → 97**. The 245 lore-only cards will flow in once SxM2 stats are decoded — just re-run `stage_cards.py`.
 10. **Promote to big rig** — once stable, Megane handles the copy
 

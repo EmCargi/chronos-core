@@ -183,6 +183,7 @@ venv/bin/python chronos.py
 | `/inventory` | Show owned items |
 | `/loadout` | Show full BESM build (techniques, skills, defects, shock value) |
 | `/use <item_id>` | Consume a consumable (e.g. heal 15 HP) |
+| `/provision [info] [filters]` | GM-seed the BESM canon into the active setting's shop. Filters: `eras=archaic,modern`, `categories=melee`, `types=weapon`, `cap=800`; bare token = era filter; `info` = preview only |
 | `auto-ingest` | Run the staging sweep |
 
 ### Launcher Utilities

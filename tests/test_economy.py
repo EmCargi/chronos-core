@@ -182,6 +182,20 @@ class TestCatalogOperations(EconomyDBTestCase):
         sword = [i for i in catalog if i["item_id"] == "arming_sword"][0]
         self.assertEqual(economy.compute_price(sword), 400)
 
+    def test_jaxon_d_shelf_has_beast_repellent(self):
+        """Beast-Repellent Powder is a documented 5 sp D-Rank Jaxon item."""
+        catalog = economy.list_catalog("guild_rpg")
+        powder = [i for i in catalog if i["item_id"] == "beast_repellent_powder"][0]
+        self.assertEqual(powder["rank_label"], "D")
+        self.assertEqual(economy.compute_price(powder), 5)
+
+    def test_jaxon_c_shelf_has_flash_powder(self):
+        """Flash-Powder Vial is a documented 20 sp C-Rank Jaxon item."""
+        catalog = economy.list_catalog("guild_rpg")
+        vial = [i for i in catalog if i["item_id"] == "flash_powder_vial"][0]
+        self.assertEqual(vial["rank_label"], "C")
+        self.assertEqual(economy.compute_price(vial), 20)
+
     def test_rank_filter(self):
         d_items = economy.list_catalog("guild_rpg", rank_filter="D")
         self.assertGreaterEqual(len(d_items), 2)

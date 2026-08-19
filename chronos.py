@@ -56,6 +56,9 @@ from engine import (
     buy_item,
     inventory_summary,
     use_item,
+    seed_besm_catalog,
+    besm_catalog_summary,
+    besm_catalog_matches,
     LLMBridge,
     ACTIVE_MODEL,
     THIN_MODEL,
@@ -355,7 +358,7 @@ def main():
             
             # Temporarily pause live display to allow clean console stdin prompts
             live.stop()
-            console.print("[bold cyan]COMMANDS:[/bold cyan] [white]exit | examine | north | south | east | west | /attack | /loot | /roster | /settings | /setting <id> | /module <name> | /char <name> | /shop | /buy <item_id> | /wallet | /grant <silver> | /inventory | /loadout | /greetings | /startgreeting <n> | /use <item_id> | auto-ingest[/white]")
+            console.print("[bold cyan]COMMANDS:[/bold cyan] [white]exit | examine | north | south | east | west | /attack | /loot | /roster | /settings | /setting <id> | /module <name> | /char <name> | /shop | /buy <item_id> | /wallet | /grant <silver> | /inventory | /loadout | /greetings | /startgreeting <n> | /use <item_id> | /provision [info] [filters] | auto-ingest[/white]")
             try:
                 player_input = console.input("[bold magenta]Select action > [/bold magenta]").strip()
             except (KeyboardInterrupt, EOFError):
@@ -492,6 +495,57 @@ def main():
                 narrative_history.append(f"[bold yellow]System:[/bold yellow] [{active_setting_id}] shop listing:")
                 for line in shop_text.splitlines():
                     narrative_history.append(f"[dim]{line}[/dim]")
+
+            # Action: /provision [filters] — GM provisioning from the BESM canon
+            elif player_input.lower().startswith("/provision"):
+                parts = player_input.split()
+                cmd = parts[1].lower() if len(parts) > 1 else ""
+                if cmd in ("usage", "help"):
+                    narrative_history.append("[bold yellow]System:[/bold yellow] /provision usage:")
+                    narrative_history.append("[dim]  /provision [info] [filters] — seed the BESM canon into this setting's shop[/dim]")
+                    narrative_history.append("[dim]  filters: eras=archaic,modern | categories=melee | types=weapon | cap=800[/dim]")
+                    narrative_history.append("[dim]  bare token = era filter (e.g. /provision archaic); info = preview only[/dim]")
+                else:
+                    eras = categories = types = None
+                    cap = None
+                    dry_run = False
+                    if cmd == "info":
+                        dry_run = True
+                        parts = [parts[0]] + parts[2:]
+                    for tok in parts[1:]:
+                        tok = tok.lower()
+                        if "=" in tok:
+                            key, val = tok.split("=", 1)
+                            vals = [v.strip() for v in val.split(",") if v.strip()]
+                            if key in ("era", "eras"):
+                                eras = vals
+                            elif key in ("cat", "category", "categories"):
+                                categories = vals
+                            elif key in ("type", "types", "item_type", "item_types"):
+                                types = vals
+                            elif key in ("cap", "price_cap", "max", "maxsp"):
+                                try:
+                                    cap = int(val)
+                                except ValueError:
+                                    narrative_history.append("[bold yellow]System:[/bold yellow] cap= needs an integer (e.g. cap=800).")
+                                    cap = None
+                            else:
+                                narrative_history.append(f"[bold yellow]System:[/bold yellow] Unknown filter '{key}' — try eras=, categories=, types=, cap=.")
+                        else:
+                            if tok not in ("info", "usage", "help"):
+                                eras = [tok]
+                    count, spread = besm_catalog_matches(eras, categories, types, cap)
+                    spread_text = ", ".join(f"{k} {v}" for k, v in sorted(spread.items())) if spread else "no match"
+                    if dry_run:
+                        narrative_history.append(f"[bold yellow]System:[/bold yellow] Preview: would seed [bold white]{count}[/bold white] BESM items into [{active_setting_id}] ({spread_text}).")
+                        narrative_history.append("[dim]Re-run without 'info' to commit.[/dim]")
+                    else:
+                        if count == 0:
+                            narrative_history.append("[bold red]System:[/bold red] No BESM items match those filters.")
+                        else:
+                            seeded = seed_besm_catalog(active_setting_id, eras, categories, types, cap)
+                            narrative_history.append(f"[bold green]Provisioned:[/bold green] seeded [bold white]{seeded}[/bold white] BESM items into [{active_setting_id}] ({spread_text}).")
+                            narrative_history.append("[dim]Run /shop to see the new stock.[/dim]")
 
             # Action: /buy <item_id> [qty] (purchase from catalog)
             elif player_input.lower().startswith("/buy"):

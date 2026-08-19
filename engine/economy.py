@@ -23,6 +23,9 @@ RANK_BRACKETS = {
 
 # Idempotent seed catalog: Jaxon the Alchemist's shop (Guild RPG economy
 # doc prices) plus Rosivelle's permanent gear as reference permanents.
+# NOTE: only heal / ep / cure effect kinds are runtime-consumable in use_item()
+# today; the repel/campsite and blind/flash kinds are catalog-complete but
+# unwired, and use_item() reports them as "no usable effect".
 SEED_CATALOG = [
     {
         "item_id": "basic_healing_salve",
@@ -49,6 +52,18 @@ SEED_CATALOG = [
         "description": "A D-Rank pick-me-up. Restores a small amount of EP."
     },
     {
+        "item_id": "beast_repellent_powder",
+        "name": "Beast-Repellent Powder",
+        "item_type": "consumable",
+        "rank_label": "D",
+        "besm_points": 2,
+        "item_cp": 1,
+        "price_class": "consumable",
+        "price_silver": 5,
+        "effect_json": {"kind": "repel_animals", "level": 1, "area": "campsite"},
+        "description": "A D-Rank pungent powder that keeps wild, non-magical animals away from a campsite."
+    },
+    {
         "item_id": "standard_health_potion",
         "name": "Standard Health Potion",
         "item_type": "consumable",
@@ -71,6 +86,18 @@ SEED_CATALOG = [
         "price_silver": 30,
         "effect_json": {"kind": "cure", "level": 1, "status": "poison"},
         "description": "A C-Rank antidote for common monster venom."
+    },
+    {
+        "item_id": "flash_powder_vial",
+        "name": "Flash-Powder Vial",
+        "item_type": "consumable",
+        "rank_label": "C",
+        "besm_points": 2,
+        "item_cp": 1,
+        "price_class": "consumable",
+        "price_silver": 20,
+        "effect_json": {"kind": "blind", "level": 1, "targets": "small_monster_group", "duration_rounds": 1},
+        "description": "A C-Rank tactical vial mimicking Weapon (Flare) Level 1: a blinding flash that staggers a small monster group."
     },
     {
         "item_id": "arming_sword",
