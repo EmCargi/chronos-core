@@ -1,0 +1,96 @@
+{
+  "module_name": "U.A. Entrance Exam",
+  "points_budget": 90,
+  "description": "The official My Hero Academia U.A. Entrance Exam module for Chronos Core. Face the faux-villain robots in the mock city, earn rescue points, and clear the 0-Pointer to win admission into the Hero Course.",
+  "starting_node": "node_01_guardian_gate",
+  "presets": [
+    {
+      "name": "Prospective Hero (Quirk)",
+      "stat_body": 6,
+      "stat_mind": 6,
+      "stat_soul": 6
+    },
+    {
+      "name": "Quirkless Applicant",
+      "stat_body": 5,
+      "stat_mind": 7,
+      "stat_soul": 6
+    },
+    {
+      "name": "Support-Course Rookie",
+      "stat_body": 5,
+      "stat_mind": 7,
+      "stat_soul": 5
+    }
+  ],
+  "nodes": {
+    "node_01_guardian_gate": {
+      "node_id": "node_01_guardian_gate",
+      "title": "Exam Gate: The U.A. Arena Entrance",
+      "description": "Giant doors grind open to reveal the mock city district. Present Mic's voice booms instructions over the speakers: ten minutes, robots worth one to three points, your hero analysis goes live. A 1-Pointer lumbers into view, guarding the first intersection.",
+      "exits": {
+        "north": "node_02_puzzle_cityblock"
+      },
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 0,
+        "dv": 10,
+        "fail_damage": 4
+      }
+    },
+    "node_02_puzzle_cityblock": {
+      "node_id": "node_02_puzzle_cityblock",
+      "title": "Mock City Center: Rescue-Point Scramble",
+      "description": "Smoke rises from collapsing storefronts. A student lies pinned under rubble while a 2-Pointer advances on their position. Heroism here is measured not just by robots destroyed but by the lives saved — rescue points are tallied separately.",
+      "exits": {
+        "south": "node_01_guardian_gate",
+        "north": "node_03_setback_swarm"
+      },
+      "required_check": {
+        "stat": "stat_mind",
+        "skill": 0,
+        "dv": 12,
+        "fail_damage": 6
+      }
+    },
+    "node_03_setback_swarm": {
+      "node_id": "node_03_setback_swarm",
+      "title": "Industrial Alley: The 0-Point Warning",
+      "description": "A synthetic voice warns of the 0-Pointer—worth zero points, designed to wreck anything in its path. A swarm of 1-Pointers corners a panicked examinee near the alley mouth. Stand and fight, or pull them clear and reposition?",
+      "exits": {
+        "south": "node_02_puzzle_cityblock",
+        "east": "node_04_climax_zeropointer"
+      },
+      "required_check": {
+        "stat": "stat_soul",
+        "skill": 0,
+        "dv": 12,
+        "fail_damage": 8
+      }
+    },
+    "node_04_climax_zeropointer": {
+      "node_id": "node_04_climax_zeropointer",
+      "title": "Central Plaza: The 0-Pointer",
+      "description": "The ground shakes. A colossal 0-Pointer towers over the plaza, its stamping feet collapsing rooftops. Deku's signature move — a single, reckless, full-power smash — is the stuff of legend here. Prove your own resolve, or find another way through.",
+      "exits": {
+        "west": "node_03_setback_swarm",
+        "north": "node_05_reward_admission"
+      },
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 0,
+        "dv": 15,
+        "fail_damage": 12
+      }
+    },
+    "node_05_reward_admission": {
+      "node_id": "node_05_reward_admission",
+      "title": "Exam Results: Admission to the Hero Course",
+      "description": "The clock hits zero. Recovery Girl tends the wounded as Present Mic announces the scoreboard. Villain points meet rescue points on the ledger — and for those who acted as true heroes, the admission letter to U.A. High School awaits.",
+      "exits": {
+        "south": "node_04_climax_zeropointer"
+      },
+      "required_check": null
+    }
+  }
+}

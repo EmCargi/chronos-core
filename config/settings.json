@@ -17,6 +17,13 @@
       "description": "The Shota x Monsters 2 BESM 4e expansion: labyrinth taming, monster tiers, and town facilities.",
       "default_module": "forest_labyrinth_v1.json",
       "character_label": "Monster Tier"
+    },
+    {
+      "setting_id": "my_hero_academia",
+      "name": "My Hero Academia: U.A. High",
+      "description": "The My Hero Academia U.A. Entrance Exam module: quirks, hero candidates, and the mock-city robot trial.",
+      "default_module": "ua_entrance_exam.json",
+      "character_label": "Hero Rank"
     }
   ]
 }
