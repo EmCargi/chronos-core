@@ -2,6 +2,11 @@
 
 Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sandbox** for the terminal. It pairs semantic, local-LLM narrative generation with a strict, Python-enforced **Big Eyes, Small Mouth Fourth Edition (Tri-Stat System)** rules simulation — with a **universal campaign catalog, canonical character roster, a setting-agnostic item economy, and a full BESM 4e rules enforcement layer** wired to live Ollama inference.
 
+> 🕹️ **This is the console.** Settings are **game discs** that plug into it — see
+> [`../SETTING_PACK_CONTRACT.md`](../SETTING_PACK_CONTRACT.md) for the five-layer disc contract.
+> The engine is setting-agnostic by design; each campaign registers via `config/settings.json`
+> (`DEFAULT_SETTINGS`) and ships its own module, roster, economy, and lore vault.
+
 Version 3 adds mechanical enforcement to the v2 foundation: the LLM shell prompt injects Combat Techniques, Skills, Defects, and Shock Value for Sixth Guard enforcement across all 7 roster characters. The thin client TUI dispatches narrative turns to the big rig's Ollama server, which returns mechanically grounded responses that respect each character's loadout.
 
 ---
