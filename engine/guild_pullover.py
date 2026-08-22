@@ -25,6 +25,15 @@ import re
 
 from .card_to_besm import ARCHETYPE_KEYWORDS, ARCHETYPE_ORDER, ARCHETYPES
 
+# Editorial provenance markers ("[cite: 386, 394]") are noise in roster fields
+# that get injected into LLM prompts. Strip them before any parsing so the
+# extractor is tolerant of the human-authored vault annotations.
+_CITE_RE = re.compile(r"\[cite:[^\]]*\]", re.I)
+
+
+def _strip_cites(text: str) -> str:
+    return _CITE_RE.sub("", text)
+
 # Guild rank -> (CP bracket midpoint, stat pool). Midpoint is used as the
 # deterministic points_budget; the pool feeds allocate_stats the way card_to_besm
 # feeds its Tier ladder. Brackets follow the canonical Aelthar sheet:
@@ -54,13 +63,20 @@ RANK_LABELS = {
 CANONICAL_NAMES = {
     "Sylvara Duskveil": "Sylvara",
     "Tomoe Shirakane": "Tomoe",
+    "Nieven Vara": "Nieven",
+    "Sylvanus Vara": "Sylvanus",
 }
 
 
 def _rank_letter(rank_text: str) -> str:
-    """Map a markdown rank string ('D-Rank', 'C-Rank', 'S/SS-Rank') to S/A/B/C/D."""
-    m = re.search(r"\b([SABCD])\s*/?\s*[SABCD]?\s*-?\s*Rank", rank_text, re.I)
-    return m.group(1).upper() if m else ""
+    """Map a markdown rank string to S/A/B/C/D.
+
+    Uses the LAST rank token in the line so compound descriptions like
+    'Low C-Rank equivalent | S-Rank Administrative Gatekeeper' resolve to the
+    character's actual tier (S), not the flavor comparison (C).
+    """
+    matches = re.findall(r"\b([SABCD])\s*/?\s*[SABCD]?\s*-?\s*Rank", rank_text, re.I)
+    return matches[-1].upper() if matches else ""
 
 
 def split_character_blocks(md_text: str) -> list[str]:
@@ -99,7 +115,16 @@ def parse_metadata(block: str, full_text: str = "") -> dict:
         # Strip the closing bold "** " from "*  **Name:** Beril" → "Beril".
         return re.sub(r"^\s*\*+\s*", "", m.group(1)).strip()
 
-    name = grab("Name")
+    name = grab("Name") or grab("Character Name")
+    if name:
+        # Drop editorial citations, trailing epithet/note parentheticals, and
+        # honorific prefixes so the key matches the roster's canonical row.
+        name = _CITE_RE.sub("", name)
+        name = re.sub(r"\s*\([^)]*\)\s*$", "", name)
+        # Boss epithets ("Zarkoth, The Soul-Eater") — keep the base name only.
+        name = re.sub(r",.*$", "", name).strip()
+        name = re.sub(r"^(Archdruid|Professor)\s+", "", name, flags=re.I)
+        name = name.strip()
     if not name:
         # Fall back to the Narrative-Sentence heading title.
         heading = re.search(
@@ -108,6 +133,15 @@ def parse_metadata(block: str, full_text: str = "") -> dict:
         )
         if heading:
             name = re.sub(r"['’]s\b", "", heading.group(1).strip()).strip()
+    if not name:
+        # Boss sheets that omit "Character Name:" carry the name in the H-level
+        # title ("##### 👾 A-RANK SYSTEMIC CALAMITY: ZARKOTH (THE SOUL-EATER)").
+        heading = re.search(
+            r"^#+\s*👾?\s*[A-Z]-Rank\s+SYSTEMIC\s+\w+:\s*([A-Za-z'’ ]+?)\s*\([^)]*\).*$",
+            block, re.M | re.I,
+        )
+        if heading:
+            name = heading.group(1).strip().title()
     data["name"] = name
 
     basic = grab("Basic")
@@ -115,10 +149,13 @@ def parse_metadata(block: str, full_text: str = "") -> dict:
     basic_race = re.search(r"^(?:Female|Male)[,;]\s*([A-Za-z]+(?:[ -][A-Za-z]+)*)", basic)
     if basic_race:
         race = basic_race.group(1).strip()
-    race = race or grab("Race")
+    race = race or grab("Race") or grab("Race / Species") or grab("Species")
+    if race:
+        race = re.sub(r"\s*\([^)]*\)\s*$", "", race).strip()
+        race = _CITE_RE.sub("", race).strip()
     data["race"] = race
 
-    rank = grab("Rank") or grab("Adventurer Rank")
+    rank = grab("Rank") or grab("Adventurer Rank") or grab("Power Bracket") or grab("Threat Bracket")
     if not rank:
         rank_m = re.search(r"Rank\s*:\s*([SABCD][^\n]*-?\s*Rank)", basic, re.I)
         rank = rank_m.group(1).strip() if rank_m else ""
@@ -148,9 +185,9 @@ def extract_narrative_syntax(md_text: str) -> dict:
     Sixth Guard anchor + three Lever sections. Returns the three roster fields.
     """
     # Prefer the registry-sheet "Individual Action Syntax Card" YAML format.
-    reg = parse_registry_narrative_syntax(md_text)
+    reg = parse_registry_narrative_syntax(_strip_cites(md_text))
     if reg.get("structural_fault") or reg.get("sixth_guard"):
-        return reg
+        return {k: _CITE_RE.sub("", v) for k, v in reg.items()}
 
     structural_fault = ""
     sixth_guard = ""
@@ -172,31 +209,51 @@ def extract_narrative_syntax(md_text: str) -> dict:
         if fault_m:
             structural_fault = fault_m.group(1).strip().lstrip("* ").strip()
 
-    # Sixth Guard: the prose anchor paragraph under the 🛑 heading.
+    # Sixth Guard: boss inline bullet ("*   **The Sixth Guard Anchor (...):** <text>")
+    # takes priority; otherwise the prose anchor paragraph under the 🛑 heading.
     anchor_m = re.search(
-        r"Sixth Guard.*?\n\n(.+?)(?=\n\n|##\s|###\s|####\s|$)",
-        md_text, re.S | re.I,
+        r"The Sixth Guard Anchor[^\n:]*:\s*\**\s*(.+)", md_text, re.I
     )
     if anchor_m:
-        sixth_guard = re.sub(r"\s+", " ", anchor_m.group(1)).strip()
+        sixth_guard = re.sub(r"\s+", " ", anchor_m.group(1)).strip().lstrip("* ")
+    if not sixth_guard:
+        anchor_m = re.search(
+            r"Sixth Guard.*?\n\n(.+?)(?=\n\n|##\s|###\s|####\s|$)",
+            md_text, re.S | re.I,
+        )
+        if anchor_m:
+            sixth_guard = re.sub(r"\s+", " ", anchor_m.group(1)).strip().lstrip("* ")
 
-    # Levers: three sections, each "Lever N: The X Vector" carrying
-    # "- **The Strategy:** ..." and "- **The Action:** ..." bullets. Reduce to
-    # "Name: <strategy sentence> <action sentence>" — the engine-native shape
-    # the roster's existing levers use, minus the markdown scaffolding.
+    # Levers: three sections (Containment / Velocity / Defection). Two layouts:
+    #  - registry "Individual Action Syntax Card": "Lever N: The <Name> Vector"
+    #    with "**The Strategy:**" / "**The Action:**" bold bullets;
+    #  - boss "PREDICATE" block: "Lever N: <Name> (...):" with indented
+    #    "- Strategy:" / "- Action:" bullets.
+    # Reduce each to "Name: <strategy sentence> <action sentence>".
     lever_names = ["Containment", "Velocity", "Defection"]
     lever_parts = []
     for name in lever_names:
-        pat = re.compile(
+        sec = None
+        strat_re = r"\*\*The Strategy:?\*\*\s*(.+)"
+        act_re = r"\*\*The Action:?\*\*\s*(.+)"
+        pat1 = re.compile(
             rf"Lever\s*\d+\s*:\s*The\s+{name}\s+Vector.*?(?=\n####|\n###|\n##|\Z)",
             re.S | re.I,
         )
-        sec = pat.search(md_text)
-        if not sec:
+        pat2 = re.compile(
+            rf"Lever\s*\d+\s*:\s*{name}\s*\([^)]*\)[^:]*:\s*\n((?:\s+-.*\n?)*)",
+            re.S | re.I,
+        )
+        if pat1.search(md_text):
+            sec = pat1.search(md_text).group(0)
+        elif pat2.search(md_text):
+            sec = pat2.search(md_text).group(1)
+            strat_re = r"Strategy:\s*(.+)"
+            act_re = r"Action:\s*(.+)"
+        else:
             continue
-        section = sec.group(0)
-        strategy = re.search(r"\*\*The Strategy:?\*\*\s*(.+)", section, re.I)
-        action = re.search(r"\*\*The Action:?\*\*\s*(.+)", section, re.I)
+        strategy = re.search(strat_re, sec, re.I)
+        action = re.search(act_re, sec, re.I)
         bits = []
         if strategy:
             bits.append(re.sub(r"\s+", " ", strategy.group(1)).strip())
@@ -208,9 +265,9 @@ def extract_narrative_syntax(md_text: str) -> dict:
         levers = " ".join(lever_parts)
 
     return {
-        "structural_fault": structural_fault,
-        "sixth_guard": sixth_guard,
-        "levers": levers,
+        "structural_fault": _CITE_RE.sub("", structural_fault),
+        "sixth_guard": _CITE_RE.sub("", sixth_guard),
+        "levers": _CITE_RE.sub("", levers),
     }
 
 
@@ -222,39 +279,54 @@ def parse_explicit_stats(md_text: str) -> dict:
     with stat_body/mind/soul, acv, dcv, max_hp, max_ep, shock_value when the
     table is present and complete enough, else {}.
     """
-    def cell_value(pattern: str) -> int | None:
-        m = re.search(pattern, md_text)
-        if not m:
-            return None
-        val = m.group(1).strip().rstrip("*").strip()
-        try:
-            return int(val)
-        except ValueError:
-            return None
+    def _num_after(label_re: str) -> int | None:
+        # Accepts both the registry-table form ("**Label** ... | **N**") and the
+        # boss derived-metrics bullet form ("**Label:** **N**", colon inside the
+        # bold), plus the optional " Stat" suffix on Body/Mind/Soul cells.
+        for pat in (
+            r"\*\*" + label_re + r":?\*\*[^|\n]*\|\s*\**(\d+)",
+            r"\*\*" + label_re + r":?\*\*\s*\**(\d+)",
+        ):
+            m = re.search(pat, md_text)
+            if m:
+                try:
+                    return int(m.group(1))
+                except ValueError:
+                    return None
+        return None
 
     stats = {}
-    body = cell_value(r"\*\*Body \(B\) Stat\*\*[^|]*\|\s*\*?\*?(\d+)")
-    mind = cell_value(r"\*\*Mind \(M\) Stat\*\*[^|]*\|\s*\*?\*?(\d+)")
-    soul = cell_value(r"\*\*Soul \(S\) Stat\*\*[^|]*\|\s*\*?\*?(\d+)")
+    body = _num_after(r"Body \(B\)(?: Stat)?")
+    mind = _num_after(r"Mind \(M\)(?: Stat)?")
+    soul = _num_after(r"Soul \(S\)(?: Stat)?")
     if body and mind and soul:
         stats.update(stat_body=body, stat_mind=mind, stat_soul=soul)
         # Prefer explicit derived values when present, else recompute from stats.
-        acv = cell_value(r"\*\*Attack Combat Value \(ACV\)\*\*[^|]*\|\s*\*?\*?(\d+)")
-        dcv = cell_value(r"\*\*Defence Combat Value \(DCV\)\*\*[^|]*\|\s*\*?\*?(\d+)")
-        hp = cell_value(r"\*\*Health Points \(HP\)\*\*[^|]*\|\s*\*?\*?(\d+)")
-        ep = cell_value(r"\*\*Energy Points \(EP\)\*\*[^|]*\|\s*\*?\*?(\d+)")
+        acv = _num_after(r"Attack Combat Value \(ACV\)")
+        dcv = _num_after(r"Defence Combat Value \(DCV\)")
+        hp = _num_after(r"Health Points \(HP\)")
+        ep = _num_after(r"Energy Points \(EP[^)]*\)")
         stats["acv"] = acv or (body + mind + soul) // 3
         stats["dcv"] = dcv or max(1, (body + mind + soul) // 3 - 2)
         stats["max_hp"] = hp or (body + soul) * 5
         stats["max_ep"] = ep or (mind + soul) * 5
-        # Budget from the Adventurer Rank line's CP bracket when present, else
-        # ladder default. Anchored to the rank line so attribute "(4 CP)" bundles
-        # don't get mistaken for the character budget.
+        # Budget from the rank line's CP figure when present, else the boss
+        # "Power Bracket: ... (250 CP Budget)" form, else ladder default.
+        # Anchored to the rank line so attribute "(4 CP)" bundles don't get
+        # mistaken for the character budget.
+        budget = None
         rank_line = re.search(r"(?:Adventurer\s+)?Rank[^\n]*\([^\n]*\d+\s*CP", md_text, re.I)
         if rank_line:
             budget_m = re.search(r"\([^\n]*?(\d+)\s*CP", rank_line.group(0), re.I)
-            if budget_m:
-                stats["points_budget"] = int(budget_m.group(1))
+            budget = int(budget_m.group(1)) if budget_m else None
+        if budget is None:
+            rank_line = re.search(r"(?:Adventurer\s+)?Rank[^\n]*?(\d+)\s*CP", md_text, re.I)
+            budget = int(rank_line.group(1)) if rank_line else None
+        if budget is None:
+            budget_m = re.search(r"(\d+)\s*CP\s*Budget", md_text, re.I)
+            budget = int(budget_m.group(1)) if budget_m else None
+        if budget is not None:
+            stats["points_budget"] = budget
     return stats
 
 
@@ -270,7 +342,7 @@ def parse_registry_narrative_syntax(md_text: str) -> dict:
     # the fence) — accept both so a missing code block never drops the syntax.
     yaml_m = re.search(
         r"Individual Action Syntax Card[^\n]*\n(?:(?:```yaml)\n)?(.*?)(?:\n```)?(?=\n###|\n##\n|\n## |\Z)",
-        md_text, re.S | re.I,
+        _strip_cites(md_text), re.S | re.I,
     )
     if not yaml_m:
         return {}
@@ -304,7 +376,7 @@ def parse_registry_narrative_syntax(md_text: str) -> dict:
     lever_parts = []
     for name in ["Containment", "Velocity", "Defection"]:
         pat = re.compile(
-            rf"Lever \d+:\s*{name}\s*\([^)]*\):\s*\n((?:\s+-.*\n?)*)",
+            rf"Lever \d+:\s*{name}\s*\([^)]*\)[^:]*:\s*\n((?:\s+-.*\n?)*)",
             re.I,
         )
         m = pat.search(block)
@@ -424,6 +496,10 @@ def extract_character(md_text: str, source_path: str = "") -> dict:
 def extract_file(path: str) -> list[dict]:
     """Parse a markdown file into one-or-more upsert payloads (handles pairs/trio)."""
     md_text = open(path, encoding="utf-8", errors="ignore").read()
+    # Some vault sheets serialize newlines as literal "\n" escape sequences
+    # (collapsing the whole sheet onto one physical line). Normalize so the
+    # newline-delimited block / lever-bullet parsers behave.
+    md_text = md_text.replace("\\n", "\n")
     payloads = []
     for block in split_character_blocks(md_text):
         try:

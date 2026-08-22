@@ -79,6 +79,7 @@ def init_roster_db() -> None:
     migrate_roster_narrative_syntax()
     migrate_roster_besm_columns()
     seed_default_settings()
+    init_locations_table()
     logger.info(f"Guild RPG roster database initialized at {ROSTER_PATH}.")
 
 def migrate_roster_multi_setting() -> None:
@@ -810,9 +811,21 @@ def init_locations_table() -> None:
                 description   TEXT NOT NULL DEFAULT '',
                 travel_from_capital TEXT NOT NULL DEFAULT '',
                 notes         TEXT NOT NULL DEFAULT '',
+                structural_fault TEXT NOT NULL DEFAULT '',
+                sixth_guard  TEXT NOT NULL DEFAULT '',
+                levers       TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (setting_id, name)
             )
         """)
+        # Non-destructive migration for existing roster DBs (adds the
+        # narrative-syntax columns and provenance columns without touching
+        # seeded data).
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(locations)")}
+        for col in ("structural_fault", "sixth_guard", "levers",
+                    "card_json", "source_path", "ingested_at"):
+            if col not in cols:
+                ddl = "TEXT NOT NULL DEFAULT ''" if col != "ingested_at" else "TEXT"
+                conn.execute(f"ALTER TABLE locations ADD COLUMN {col} {ddl}")
 
 def seed_locations(setting_id: str = "guild_rpg") -> None:
     """Seed the canonical atlas locations (idempotent)."""
@@ -872,6 +885,49 @@ def seed_locations(setting_id: str = "guild_rpg") -> None:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (setting_id, name, ltype, region, desc, travel, notes))
     logger.info(f"Seeded {len(atlas)} locations for '{setting_id}'.")
+
+
+def upsert_location(setting_id: str, location: dict, card_json: str = "{}",
+                    source_path: str = "") -> None:
+    """Inserts or replaces a location row, carrying the Active Narrative Syntax
+    (structural_fault / sixth_guard / levers) alongside the atlas columns.
+
+    Mirrors ``upsert_character``: keyed by (setting_id, name) so a re-run with
+    updated region sheets upgrades the row without duplicating it.
+    """
+    with get_roster_connection() as conn:
+        conn.execute("""
+            INSERT INTO locations (
+                setting_id, name, location_type, region, description,
+                travel_from_capital, notes, structural_fault, sixth_guard, levers,
+                card_json, source_path, ingested_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(setting_id, name) DO UPDATE SET
+                location_type   = excluded.location_type,
+                region          = excluded.region,
+                description     = excluded.description,
+                travel_from_capital = excluded.travel_from_capital,
+                notes           = excluded.notes,
+                structural_fault = excluded.structural_fault,
+                sixth_guard     = excluded.sixth_guard,
+                levers          = excluded.levers,
+                card_json       = excluded.card_json,
+                source_path     = excluded.source_path,
+                ingested_at     = CURRENT_TIMESTAMP
+        """, (
+            setting_id,
+            location["name"],
+            location.get("location_type", "settlement"),
+            location.get("region", ""),
+            location.get("description", ""),
+            location.get("travel_from_capital", ""),
+            location.get("notes", ""),
+            location.get("structural_fault", ""),
+            location.get("sixth_guard", ""),
+            location.get("levers", ""),
+            card_json,
+            source_path,
+        ))
 
 def list_locations(setting_id: str, location_type: str | None = None) -> list:
     """List atlas locations, optionally filtered by type."""

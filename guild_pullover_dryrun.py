@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Dry-run sweep for the Guild RPG cast pullover.
 
-Scans the canonical character markdowns, runs each through the deterministic
-extractor (engine/guild_pullover.py), and prints every resulting
-upsert_character() payload for review WITHOUT touching the roster DB.
+Scans the canonical registry sheets (the roster's source of truth), runs each
+through the deterministic extractor (engine/guild_pullover.py), and prints every
+resulting upsert_character() payload for review WITHOUT touching the roster DB.
 
 Use this to sanity-check the full cast before the real ingest: confirm names,
 rank labels, derived stats, and narrative-syntax coverage. A character missing
@@ -40,6 +40,10 @@ SKIP_FILES = {
     "Soren D-Rank.md",
     # Duplicate of "Sera C Rank.md".
     "Sera C-Rank.md",
+    # Sefne's arcane-golem sub-sheet — not a standalone roster character.
+    "sefnes-arcane-golem-sub-sheet.md",
+    # Superseded by the v2 Abyssal Behemoth sheet (which adds the Sixth Guard Anchor).
+    "abyssal-behemoth-boss-sheet.md",
 }
 
 
@@ -60,8 +64,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--base",
-        default="../guild-rpg-digital-dm/Characters/Official AK Characters/Character Markdowns",
-        help="Root dir holding the character markdowns.",
+        default="../guild-rpg-digital-dm/Characters/Official AK Characters/BESM Sheets/adventurers",
+        help="Root dir holding the registry sheets (the roster's source of truth).",
     )
     parser.add_argument(
         "--json",
@@ -105,7 +109,9 @@ def main() -> int:
     table.add_column("NS", justify="center")
 
     for p in payloads:
-        ns_ok = all(p.get(k) for k in ("structural_fault", "sixth_guard", "levers"))
+        # Levers are an adventurer-only construct; bosses carry the Structural
+        # Fault + Sixth Guard core but no three-vector Lever block.
+        ns_ok = all(p.get(k) for k in ("structural_fault", "sixth_guard"))
         ns_tag = "[green]✓[/green]" if ns_ok else "[bold yellow]⚠[/bold yellow]"
         stats = f"{p['stat_body']}/{p['stat_mind']}/{p['stat_soul']}"
         table.add_row(
@@ -128,7 +134,7 @@ def main() -> int:
             border_style="red",
         ))
 
-    missing_ns = [p["name"] for p in payloads if not all(p.get(k) for k in ("structural_fault", "sixth_guard", "levers"))]
+    missing_ns = [p["name"] for p in payloads if not all(p.get(k) for k in ("structural_fault", "sixth_guard"))]
     if missing_ns:
         console.print(f"\n[bold yellow]Missing narrative syntax (⚠):[/bold yellow] {', '.join(missing_ns)}")
 
