@@ -668,12 +668,34 @@ def set_character_md_path(setting_id: str, name: str, md_path: str) -> None:
     logger.info(f"Set md_source_path for {name}: {md_path}")
 
 
+DOMESTIC_GREETING_KEYWORDS = (
+    "guild hall", "guildhall", "guild tavern", "tavern", "library",
+    "reception", "common hall", "mess hall", "headquarters", "guild's library",
+)
+FIELD_GREETING_KEYWORDS = (
+    "forest", "quest", "mountain", "road", "dungeon", "wilderness",
+    "battlefield", "camp", "trail", "ruins",
+)
+
+
+def classify_greeting(greeting: dict) -> str:
+    """Sort a greeting as 'domestic' (guild-hub appropriate) or 'field' (adventure)."""
+    blob = f"{greeting.get('scene', '')} {greeting.get('text', '')}".lower()
+    if any(k in blob for k in DOMESTIC_GREETING_KEYWORDS):
+        return "domestic"
+    if any(k in blob for k in FIELD_GREETING_KEYWORDS):
+        return "field"
+    return "neutral"
+
+
 def format_greeting_list(greetings: list) -> str:
-    """Format greeting list for the narrative history panel."""
+    """Format greeting list for the narrative history panel, tagging hub vs quest starts."""
     lines = []
     for i, g in enumerate(greetings):
+        kind = classify_greeting(g)
+        tag = "[dim][Hub][/dim]" if kind == "domestic" else ("[dim][Quest][/dim]" if kind == "field" else "")
         scene = g['scene'][:60] if g['scene'] else '(no scene description)'
-        lines.append(f"  [bold cyan]{i+1}.[/bold cyan] {scene}")
+        lines.append(f"  [bold cyan]{i+1}.[/bold cyan] {scene} {tag}".rstrip())
         if g['opening']:
             lines.append(f"      [dim]\"{g['opening'][:50]}\"[/dim]")
     return "\n".join(lines)

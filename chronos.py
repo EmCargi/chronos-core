@@ -330,6 +330,26 @@ def _edge_label(weight: int) -> str:
         return "no edge"
     return "Minor Edge" if weight == 1 else "Major Edge"
 
+
+def build_greeting_start(char, greeting: dict, active_org: str, idx: int):
+    """Build the opening node for a /startgreeting launch.
+
+    Domestic (guild-hub) greetings anchor to the active org's guildhall so the
+    hub becomes the literal starting location; field greetings open on a generic
+    quest node. Returns (kind, NodeSchema, assembled_text).
+    """
+    from engine.guild_roster import classify_greeting
+    kind = classify_greeting(greeting)
+    greeting_text = greeting.get("text", "")
+    if greeting.get("opening"):
+        greeting_text += f"\n\n{getattr(char, 'name', 'You')}: \"{greeting['opening']}\""
+    if kind == "domestic":
+        hub_title = f"{active_org} Guildhall" if active_org else "Guildhall"
+        node = NodeSchema(node_id="hub_guildhall", title=hub_title, description=greeting_text, exits={})
+    else:
+        node = NodeSchema(node_id=f"greeting_{idx+1}", title=f"{getattr(char, 'name', 'You')} — Greeting {idx+1}", description=greeting_text, exits={})
+    return kind, node, greeting_text
+
 def main():
     # 1. Initialize SQLite session database and canonical setting roster
     init_db()
@@ -677,7 +697,7 @@ def main():
                     narrative_history.append(f"[bold yellow]System:[/bold yellow] [{active_setting_id}] {char.name} session starters ({len(greetings)}):")
                     for line in format_greeting_list(greetings).splitlines():
                         narrative_history.append(f"  {line}")
-                    narrative_history.append("[dim]Use /startgreeting <number> to begin a session.[/dim]")
+                    narrative_history.append("[dim]Use /startgreeting <number> to begin a session. [Hub] greetings open at the guild hall.[/dim]")
                 else:
                     narrative_history.append("[bold yellow]System:[/bold yellow] No greetings available for this character (source file missing).")
 
@@ -700,22 +720,24 @@ def main():
                             narrative_history.append(f"[bold red]System:[/bold red] Greeting {idx+1} not found. Use /greetings to list.")
                         else:
                             g = greetings[idx]
-                            # Build greeting as initial narrative node
-                            greeting_text = g['text']
-                            if g['opening']:
-                                greeting_text += f"\n\n{g['name'] if hasattr(char, 'name') else char.name}: \"{g['opening']}\""
-                            narrative_history.append(f"[bold green]Session Started:[/bold green] {char.name} — Greeting {idx+1}")
-                            narrative_history.append(f"[dim]{g['scene'][:100]}[/dim]" if g['scene'] else "")
+                            # Build greeting as the opening node; domestic greetings anchor to the guild hub
+                            kind, start_node, greeting_text = build_greeting_start(char, g, active_org, idx)
+                            active_node = start_node
+                            if kind == "domestic":
+                                narrative_history.append(f"[bold green]Session Started at the Hub:[/bold green] {char.name} — {start_node.title} (Greeting {idx+1})")
+                            else:
+                                narrative_history.append(f"[bold green]Session Started:[/bold green] {char.name} — Greeting {idx+1}")
+                            narrative_history.append(f"[dim]{g['scene'][:100]}[/dim]")
                             narrative_history.append("")
                             # Inject greeting as the first narrative turn via LLM
                             vitals = build_vitals_with_full_loadout(active_setting_id, char, active_org)
                             try:
                                 compiled = bridge.compile_system_frame("besm_shell", vitals, {
-                                    'node_id': f'greeting_{idx+1}',
-                                    'title': f'{char.name} — Greeting {idx+1}',
-                                    'description': greeting_text,
-                                    'exits': {},
-                                    'required_check': None,
+                                    'node_id': start_node.node_id,
+                                    'title': start_node.title,
+                                    'description': start_node.description,
+                                    'exits': start_node.exits,
+                                    'required_check': start_node.required_check,
                                 })
                                 result = bridge.dispatch_ollama_turn(ACTIVE_MODEL, compiled, "Player observes the scene.")
                                 if result.get('success'):
@@ -726,6 +748,9 @@ def main():
                             except Exception as e:
                                 logger.error(f"Greeting session error: {e}")
                                 narrative_history.append(f"[bold red]System Error:[/bold red] {e}")
+                            finally:
+                                # Persist the anchored location (hub or quest) so navigation follows
+                                save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name, active_org)
 
             # Action: /use <item_id> (consume a consumable)
             elif player_input.lower().startswith("/use"):
