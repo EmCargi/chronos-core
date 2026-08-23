@@ -149,6 +149,9 @@ SEED_CATALOG = [
     },
 ]
 
+# SxM1 (shota_x_monsters) economy seed: all 63 items with BESM-grounded Gold prices.
+from .sxm1_economy_catalog import SEED_CATALOG_SXM1
+
 def get_economy_connection() -> sqlite3.Connection:
     """Safely connects to the canonical roster DB (source of truth for economy)."""
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -172,9 +175,15 @@ def init_economy_db() -> None:
                 price_silver   INTEGER,
                 effect_json    TEXT NOT NULL DEFAULT '{}',
                 description    TEXT NOT NULL DEFAULT '',
+                currency       TEXT NOT NULL DEFAULT 'silver',
                 PRIMARY KEY (setting_id, item_id)
             )
         """)
+        # Migration for existing roster DBs that predate the currency column.
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN currency TEXT NOT NULL DEFAULT 'silver'")
+        except sqlite3.OperationalError:
+            pass  # column already present
         conn.execute("""
             CREATE TABLE IF NOT EXISTS character_wallets (
                 setting_id      TEXT NOT NULL,
@@ -194,18 +203,22 @@ def init_economy_db() -> None:
             )
         """)
     seed_default_catalog()
+    seed_sxm1_economy()
     logger.info("Economy database initialized (items, wallets, inventory).")
 
-def seed_default_catalog(setting_id: str = "guild_rpg") -> None:
+def seed_default_catalog(setting_id: str = "guild_rpg", currency: str = "silver",
+                         catalog: list | None = None) -> None:
     """Inserts the seed catalog for a setting (idempotent)."""
+    if catalog is None:
+        catalog = SEED_CATALOG
     with get_economy_connection() as conn:
-        for item in SEED_CATALOG:
+        for item in catalog:
             conn.execute("""
                 INSERT OR IGNORE INTO items (
                     setting_id, item_id, name, item_type, rank_label,
                     besm_points, item_cp, price_class, price_silver,
-                    effect_json, description
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    effect_json, description, currency
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 setting_id,
                 item["item_id"],
@@ -217,9 +230,14 @@ def seed_default_catalog(setting_id: str = "guild_rpg") -> None:
                 item["price_class"],
                 item["price_silver"],
                 json.dumps(item.get("effect_json", {})),
-                item.get("description", "")
+                item.get("description", ""),
+                currency
             ))
-    logger.info(f"Seeded default item catalog for setting '{setting_id}'.")
+    logger.info(f"Seeded item catalog for setting '{setting_id}' (currency={currency}).")
+
+def seed_sxm1_economy() -> None:
+    """Seeds the shota_x_monsters economy (BESM-grounded Gold prices)."""
+    seed_default_catalog("shota_x_monsters", currency="gold", catalog=SEED_CATALOG_SXM1)
 
 def fibonacci_price(item_cp: int) -> int:
     """Fibonacci silver economy: 1 CP = 100 sp, sequence 100,100,200,300,500...
@@ -244,15 +262,15 @@ def compute_price(item: dict) -> int | None:
         return None
     return item.get("price_silver")
 
-def add_item(setting_id: str, item: dict) -> None:
+def add_item(setting_id: str, item: dict, currency: str = "silver") -> None:
     """Upserts a custom item into a setting's catalog."""
     with get_economy_connection() as conn:
         conn.execute("""
             INSERT INTO items (
                 setting_id, item_id, name, item_type, rank_label,
                 besm_points, item_cp, price_class, price_silver,
-                effect_json, description
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                effect_json, description, currency
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(setting_id, item_id) DO UPDATE SET
                 name = excluded.name,
                 item_type = excluded.item_type,
@@ -262,11 +280,12 @@ def add_item(setting_id: str, item: dict) -> None:
                 price_class = excluded.price_class,
                 price_silver = excluded.price_silver,
                 effect_json = excluded.effect_json,
-                description = excluded.description
+                description = excluded.description,
+                currency = excluded.currency
         """, (
             setting_id,
             item["item_id"],
-            item["name"],
+            item.get("name", item["item_id"]),
             item.get("item_type", "misc"),
             item.get("rank_label", "D"),
             item.get("besm_points", 0),
@@ -274,9 +293,15 @@ def add_item(setting_id: str, item: dict) -> None:
             item.get("price_class", "permanent"),
             item.get("price_silver"),
             json.dumps(item.get("effect_json", {})),
-            item.get("description", "")
+            item.get("description", ""),
+            currency
         ))
     logger.info(f"Upserted item '{item['item_id']}' for setting '{setting_id}'.")
+
+
+def _unit(currency: str) -> str:
+    """Currency symbol for display: Gold (SxM1) vs Silver (Guild RPG)."""
+    return "G" if currency == "gold" else "sp"
 
 def get_item(setting_id: str, item_id: str) -> dict | None:
     """Returns a single catalog item as a dict, or None."""
@@ -316,7 +341,8 @@ def catalog_summary(setting_id: str, rank_filter: str | None = None) -> str:
         return f"No items in the '{setting_id}' catalog."
     lines = []
     for i in items:
-        price = f"{i['price_silver']} sp" if i["price_silver"] is not None else "priceless"
+        unit = _unit(i.get("currency", "silver"))
+        price = f"{i['price_silver']} {unit}" if i["price_silver"] is not None else "priceless"
         lines.append(
             f"  • [bold white]{i['name']}[/bold white] [{i['rank_label']}] "
             f"({i['item_type']}, {i['item_cp']} CP) — {price} [[dim]{i['item_id']}[/dim]]"
@@ -384,12 +410,13 @@ def buy_item(setting_id: str, character_name: str, item_id: str, qty: int = 1) -
     if price is None:
         return False, f"{item['name']} is priceless and cannot be bought."
     total = price * qty
+    unit = _unit(item.get("currency", "silver"))
     if not spend_silver(setting_id, character_name, total):
         balance = get_wallet(setting_id, character_name)
-        return False, f"Insufficient funds: {total} sp needed, wallet has {balance} sp."
+        return False, f"Insufficient funds: {total} {unit} needed, wallet has {balance} {unit}."
     add_to_inventory(setting_id, character_name, item_id, qty)
-    logger.info(f"[{setting_id}] {character_name} bought {qty}x {item['name']} for {total} sp.")
-    return True, f"Bought {qty}x {item['name']} for {total} sp. Wallet now {get_wallet(setting_id, character_name)} sp."
+    logger.info(f"[{setting_id}] {character_name} bought {qty}x {item['name']} for {total} {unit}.")
+    return True, f"Bought {qty}x {item['name']} for {total} {unit}. Wallet now {get_wallet(setting_id, character_name)} {unit}."
 
 def get_inventory(setting_id: str, character_name: str) -> list:
     """Returns the character's owned items joined with catalog details."""

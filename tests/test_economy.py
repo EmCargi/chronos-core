@@ -348,5 +348,58 @@ class TestUseItemSceneEffects(SceneEffectTestCase):
         self.assertEqual(len(effects), 2)
 
 
+class TestSxm1Economy(EconomyDBTestCase):
+    """SxM1 economy is seeded (Gold) alongside Guild RPG on init."""
+
+    def test_sxm1_catalog_has_63_items(self):
+        catalog = economy.list_catalog("shota_x_monsters")
+        self.assertEqual(len(catalog), 63)
+
+    def test_currency_is_gold(self):
+        catalog = economy.list_catalog("shota_x_monsters")
+        self.assertTrue(all(i.get("currency") == "gold" for i in catalog))
+
+    def test_confirmed_prices_match_baseline(self):
+        catalog = {i["item_id"]: economy.compute_price(i) for i in economy.list_catalog("shota_x_monsters")}
+        self.assertEqual(catalog["potion"], 50)
+        self.assertEqual(catalog["dodeka_pudding"], 200)
+        self.assertEqual(catalog["fairy_revival_potion"], 300)
+        self.assertEqual(catalog["smoke_bomb"], 150)
+
+    def test_sellable_and_currency_items_are_priceless(self):
+        catalog = economy.list_catalog("shota_x_monsters")
+        by_id = {i["item_id"]: i for i in catalog}
+        self.assertIsNone(economy.compute_price(by_id["star_medal"]))
+        self.assertIsNone(economy.compute_price(by_id["antique_coin"]))
+        self.assertIsNone(economy.compute_price(by_id["give_up_challenge"]))
+
+    def test_gold_model_is_internally_consistent(self):
+        """50 G/CP base reproduces the 4 confirmed prices exactly."""
+        catalog = economy.list_catalog("shota_x_monsters")
+        by_id = {i["item_id"]: i for i in catalog}
+        self.assertEqual(economy.compute_price(by_id["potion"]), 50 * 1)
+        self.assertEqual(economy.compute_price(by_id["dodeka_pudding"]), 50 * 4)
+        self.assertEqual(economy.compute_price(by_id["fairy_revival_potion"]), 50 * 3 * 2)
+        self.assertEqual(economy.compute_price(by_id["smoke_bomb"]), 50 * 1 * 3)
+
+    def test_sxm1_seed_idempotent(self):
+        economy.seed_sxm1_economy()
+        economy.seed_sxm1_economy()
+        catalog = economy.list_catalog("shota_x_monsters")
+        ids = [i["item_id"] for i in catalog]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_catalog_summary_shows_gold_unit(self):
+        summary = economy.catalog_summary("shota_x_monsters")
+        self.assertIn("G", summary)
+        self.assertIn("Potion", summary)
+
+    def test_guild_rpg_still_silver_after_sxm1_seed(self):
+        """SxM1 seeding must not perturb the Guild RPG silver catalog."""
+        catalog = economy.list_catalog("guild_rpg")
+        self.assertTrue(all(i.get("currency", "silver") == "silver" for i in catalog))
+        self.assertGreaterEqual(len(catalog), 8)
+
+
 if __name__ == "__main__":
     unittest.main()

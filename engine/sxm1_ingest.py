@@ -82,8 +82,10 @@ def ingest(base: str = DEFAULT_BASE, update_existing: bool = False,
         guild_roster.init_roster_db()
 
     with guild_roster.get_roster_connection() as conn:
-        existing = {
-            normalize_name(r[0])
+        # norm -> canonical DB name, so a case/spelling variant in the Bestiary
+        # upgrades the existing row in place rather than inserting a duplicate.
+        existing_map = {
+            normalize_name(r[0]): r[0]
             for r in conn.execute(
                 "SELECT name FROM characters WHERE setting_id = ?", (setting_id,)
             ).fetchall()
@@ -102,9 +104,13 @@ def ingest(base: str = DEFAULT_BASE, update_existing: bool = False,
                 # Already handled within this run.
                 summary["skipped"] += 1
                 continue
-            if norm in existing and not update_existing:
+            if norm in existing_map and not update_existing:
                 summary["existing"] += 1
                 continue
+            # On a normalized collision, fold the curated data into the canonical
+            # (existing) row name — never insert a variant duplicate.
+            if norm in existing_map:
+                payload = {**payload, "name": existing_map[norm]}
             if not dry_run:
                 guild_roster.upsert_character(
                     setting_id,
@@ -112,7 +118,7 @@ def ingest(base: str = DEFAULT_BASE, update_existing: bool = False,
                     payload["card_json"],
                     path,
                 )
-            if norm in existing:
+            if norm in existing_map:
                 summary["updated"] += 1
             else:
                 summary["inserted"] += 1
