@@ -80,6 +80,7 @@ def init_roster_db() -> None:
     migrate_roster_besm_columns()
     seed_default_settings()
     init_locations_table()
+    init_organizations_table()
     logger.info(f"Guild RPG roster database initialized at {ROSTER_PATH}.")
 
 def migrate_roster_multi_setting() -> None:
@@ -968,6 +969,119 @@ def location_summary(setting_id: str) -> str:
             lines.append(f"  [bold white]{l['name']}[/bold white] ({l['region']}){travel}")
             if l['notes']:
                 lines.append(f"      [dim italic]{l['notes']}[/dim italic]")
+    lines.append(f"  [bold cyan]{'='*60}[/bold cyan]")
+    return "\n".join(lines)
+
+
+# ── ORGANIZATION ATLAS ──────────────────────────────────────────────────
+
+def init_organizations_table() -> None:
+    """Create the organizations table if it doesn't exist."""
+    with get_roster_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS organizations (
+                setting_id          TEXT NOT NULL,
+                name                TEXT NOT NULL,
+                organization_type   TEXT NOT NULL DEFAULT 'guild',
+                scale_tier          TEXT NOT NULL DEFAULT '',
+                leader              TEXT NOT NULL DEFAULT '',
+                base_of_operations  TEXT NOT NULL DEFAULT '',
+                description         TEXT NOT NULL DEFAULT '',
+                structural_fault    TEXT NOT NULL DEFAULT '',
+                sixth_guard         TEXT NOT NULL DEFAULT '',
+                levers              TEXT NOT NULL DEFAULT '',
+                card_json           TEXT NOT NULL DEFAULT '{}',
+                source_path         TEXT NOT NULL DEFAULT '',
+                ingested_at         TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (setting_id, name)
+            )
+        """)
+        # Non-destructive migration for existing roster DBs (adds the
+        # narrative-syntax + provenance columns without touching seeded data).
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(organizations)")}
+        for col in ("structural_fault", "sixth_guard", "levers",
+                    "card_json", "source_path", "ingested_at"):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE organizations ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
+
+def upsert_organization(setting_id: str, org: dict, card_json: str = "{}",
+                        source_path: str = "") -> None:
+    """Inserts or replaces an organization row, carrying the Active Narrative
+    Syntax (structural_fault / sixth_guard / levers) alongside the org columns.
+
+    Mirrors ``upsert_location``: keyed by (setting_id, name) so a re-run with
+    updated org sheets upgrades the row without duplicating it.
+    """
+    with get_roster_connection() as conn:
+        conn.execute("""
+            INSERT INTO organizations (
+                setting_id, name, organization_type, scale_tier, leader,
+                base_of_operations, description, structural_fault, sixth_guard,
+                levers, card_json, source_path, ingested_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(setting_id, name) DO UPDATE SET
+                organization_type   = excluded.organization_type,
+                scale_tier          = excluded.scale_tier,
+                leader              = excluded.leader,
+                base_of_operations  = excluded.base_of_operations,
+                description         = excluded.description,
+                structural_fault    = excluded.structural_fault,
+                sixth_guard         = excluded.sixth_guard,
+                levers              = excluded.levers,
+                card_json           = excluded.card_json,
+                source_path         = excluded.source_path,
+                ingested_at         = CURRENT_TIMESTAMP
+        """, (
+            setting_id,
+            org["name"],
+            org.get("organization_type", "guild"),
+            org.get("scale_tier", ""),
+            org.get("leader", ""),
+            org.get("base_of_operations", ""),
+            org.get("description", ""),
+            org.get("structural_fault", ""),
+            org.get("sixth_guard", ""),
+            org.get("levers", ""),
+            card_json,
+            source_path,
+        ))
+
+def list_organizations(setting_id: str, organization_type: str | None = None) -> list:
+    """List organizations, optionally filtered by type."""
+    with get_roster_connection() as conn:
+        if organization_type:
+            rows = conn.execute(
+                "SELECT * FROM organizations WHERE setting_id = ? AND organization_type = ? ORDER BY name",
+                (setting_id, organization_type)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM organizations WHERE setting_id = ? ORDER BY name", (setting_id,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+def get_organization(setting_id: str, name: str) -> dict | None:
+    """Look up an organization by substring match."""
+    with get_roster_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM organizations WHERE setting_id = ? AND LOWER(name) LIKE ?",
+            (setting_id, f"%{name.lower()}%")
+        ).fetchone()
+        return dict(row) if row else None
+
+def organization_summary(setting_id: str) -> str:
+    """Human-readable organization listing for TUI display."""
+    orgs = list_organizations(setting_id)
+    if not orgs:
+        return "No organizations registered."
+    lines = [f"  [bold cyan]{'='*60}[/bold cyan]"]
+    for o in orgs:
+        lines.append(f"  [bold white]{o['name']}[/bold white] [{o['organization_type']}] — led by {o['leader'] or 'Unknown'}")
+        if o['base_of_operations'] or o['scale_tier']:
+            meta = " | ".join(p for p in (o['base_of_operations'], o['scale_tier']) if p)
+            lines.append(f"      [dim]{meta}[/dim]")
+        if o['structural_fault']:
+            lines.append(f"      [magenta]Structural Fault:[/magenta] {o['structural_fault'][:80]}...")
     lines.append(f"  [bold cyan]{'='*60}[/bold cyan]")
     return "\n".join(lines)
 
