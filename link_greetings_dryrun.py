@@ -33,6 +33,16 @@ RANK_TOKENS = re.compile(r"\b(a|b|c|d|s)[-\s]?rank\b|\brank\b", re.IGNORECASE)
 MULTI_INDICATORS = re.compile(r"\band\b|&|\+|trio|party|,", re.IGNORECASE)
 
 
+# Leading honorifics that prefix a Name: field (e.g. "Professor Daeren
+# Carmaeer") and would otherwise block matching against the bare roster name.
+TITLE_PREFIX = re.compile(
+    r"^(professor|archdruid|archmage|lord|lady|sir|dame|king|queen|"
+    r"prince|princess|duke|duchess|grand|high|guild master|master|"
+    r"doctor|dr\.?|mr\.?|mrs\.?|ms\.?)\s+",
+    re.IGNORECASE,
+)
+
+
 def parse_names(md_text: str) -> list:
     """Extract canonical character names from a markdown's Basic block(s)."""
     names = []
@@ -41,6 +51,8 @@ def parse_names(md_text: str) -> list:
         cand = m.group(1).strip().strip("*").strip()
         # Drop rank annotations that sometimes trail the name
         cand = re.sub(r"\s*[\(\[].*?[\)\]]\s*$", "", cand)
+        # Drop a leading honorific so "Professor Daeren Carmaeer" -> "Daeren Carmaeer"
+        cand = TITLE_PREFIX.sub("", cand).strip()
         if cand and len(cand) <= 40:
             names.append(cand)
     # De-dup preserving order

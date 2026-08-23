@@ -560,8 +560,9 @@ def parse_greetings_from_markdown(md_text: str) -> list:
     if section is not None:
         return section
     # SillyTavern alternate-greeting export: 'First Message' / 'Alternate Greeting N'
-    # headers delimit blocks (no | table, no --- separators).
-    if re.search(r"(?im)^\s*(first message|alternating greeting|alternate greeting)\b", md_text):
+    # headers delimit blocks (no | table, no --- separators). Headers may carry an
+    # optional markdown #..###### prefix (e.g. '##### Alternate Greeting 1').
+    if re.search(r"(?im)^\s*#{0,6}\s*(first message|alternating greeting|alternate greeting)\b", md_text):
         return _parse_greetings_alternate(md_text)
     return _parse_greetings_clean_markdown(md_text)
 
@@ -574,7 +575,7 @@ def _parse_greetings_alternate(md_text: str) -> list:
     long italic is treated as the scene, the first quoted line as the opening.
     """
     header_re = re.compile(
-        r"(?im)^[ \t]*(?:first message.*|alternate greeting(?=\s+\d|\s*$).*)$"
+        r"(?im)^[ \t]*#{0,6}\s*(?:first message.*|alternate greeting(?=\s+\d|\s*$).*)$"
     )
     matches = list(header_re.finditer(md_text))
     if not matches:
@@ -586,8 +587,8 @@ def _parse_greetings_alternate(md_text: str) -> list:
         block = md_text[start:end].strip()
         if len(block) < 50:
             continue
-        scene_match = re.search(r"\*([^*]{10,})\*", block)
-        scene = scene_match.group(1).strip() if scene_match else ""
+        scene_match = re.search(r"\*([^*]{10,})\*|_([^_]{10,})_", block)
+        scene = (scene_match.group(1) or scene_match.group(2) or "").strip() if scene_match else ""
         quotes = re.findall(r'"([^"]+)"', block)
         opening = quotes[0] if quotes else ""
         clean = re.sub(r"!\[.*?\]\(.*?\)", "", block)  # strip image embeds
@@ -613,8 +614,8 @@ def _parse_greetings_section(md_text: str):
         part = part.strip()
         if len(part) < 50:
             continue
-        scene_match = re.search(r"\*([^*]{10,})\*", part)
-        scene = scene_match.group(1).strip() if scene_match else ""
+        scene_match = re.search(r"\*([^*]{10,})\*|_([^_]{10,})_", part)
+        scene = (scene_match.group(1) or scene_match.group(2) or "").strip() if scene_match else ""
         quotes = re.findall(r'"([^"]+)"', part)
         opening = quotes[0] if quotes else ""
         clean = re.sub(r"!\[.*?\]\(.*?\)", "", part)
@@ -636,8 +637,8 @@ def _parse_greetings_clean_markdown(md_text: str) -> list:
             continue
         if not part.startswith('*'):
             continue
-        scene_match = re.search(r'\*([^*]{10,})\*', part)
-        scene = scene_match.group(1).strip() if scene_match else ''
+        scene_match = re.search(r'\*([^*]{10,})\*|_([^_]{10,})_', part)
+        scene = (scene_match.group(1) or scene_match.group(2) or "").strip() if scene_match else ''
         quotes = re.findall(r'"([^"]+)"', part)
         opening = quotes[0] if quotes else ''
         clean = re.sub(r'!\[.*?\]\(.*?\)', '', part)
@@ -697,7 +698,7 @@ def _parse_greetings_sillytavern_table(md_text: str) -> list:
         text = g['text']
         if not text:
             continue
-        scene_match = re.search(r'\*([^*]{10,})\*', text)
+        scene_match = re.search(r'\*([^*]{10,})\*|_([^_]{10,})_', text)
         g['scene'] = scene_match.group(1).strip() if scene_match else ''
         quotes = re.findall(r'"([^"]+)"', text)
         g['opening'] = quotes[0] if quotes else ''
