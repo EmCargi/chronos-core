@@ -544,16 +544,83 @@ def seed_shota_presets() -> None:
 def parse_greetings_from_markdown(md_text: str) -> list:
     """
     Extract individual greetings from a character markdown profile.
-    Handles two formats:
-    1. Clean markdown: greetings separated by --- delimiters, starting with *scene*
-    2. SillyTavern card table: greetings in table cells (| First Message, | Alternate Greeting N)
-    Filters out narrative-syntax explanation sections (non-playable).
+    Handles three formats:
+    1. SillyTavern card table: greetings in table cells (| First Message, | Alternate Greeting N)
+    2. Explicit GREETINGS: section — a header line followed by prose blocks
+       separated by --- delimiters (the newer authoring format; blocks need
+       not start with a *scene* italic marker).
+    3. Clean markdown: greetings separated by --- delimiters, starting with *scene*
     Returns list of dicts with 'scene', 'opening', 'text' keys.
     """
     # Detect SillyTavern card table format
     if '| First Message' in md_text and '| Alternate Greeting' in md_text:
         return _parse_greetings_sillytavern_table(md_text)
+    # Explicit GREETINGS: section (newer authoring format)
+    section = _parse_greetings_section(md_text)
+    if section is not None:
+        return section
+    # SillyTavern alternate-greeting export: 'First Message' / 'Alternate Greeting N'
+    # headers delimit blocks (no | table, no --- separators).
+    if re.search(r"(?im)^\s*(first message|alternating greeting|alternate greeting)\b", md_text):
+        return _parse_greetings_alternate(md_text)
     return _parse_greetings_clean_markdown(md_text)
+
+
+def _parse_greetings_alternate(md_text: str) -> list:
+    """Parse SillyTavern alternate-greeting exports.
+
+    Greetings are delimited by header lines like `First Message (347 token(s))`
+    and `Alternate Greeting 1`, not by `---` or a `|` table. Each block's first
+    long italic is treated as the scene, the first quoted line as the opening.
+    """
+    header_re = re.compile(
+        r"(?im)^[ \t]*(?:first message.*|alternate greeting(?=\s+\d|\s*$).*)$"
+    )
+    matches = list(header_re.finditer(md_text))
+    if not matches:
+        return []
+    greetings = []
+    for i, m in enumerate(matches):
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(md_text)
+        block = md_text[start:end].strip()
+        if len(block) < 50:
+            continue
+        scene_match = re.search(r"\*([^*]{10,})\*", block)
+        scene = scene_match.group(1).strip() if scene_match else ""
+        quotes = re.findall(r'"([^"]+)"', block)
+        opening = quotes[0] if quotes else ""
+        clean = re.sub(r"!\[.*?\]\(.*?\)", "", block)  # strip image embeds
+        clean = re.sub(r"\n{3,}", "\n\n", clean).strip()
+        if clean:
+            greetings.append({"scene": scene, "opening": opening, "text": clean})
+    return greetings
+
+
+def _parse_greetings_section(md_text: str):
+    """Parse a markdown's explicit `GREETINGS:` section.
+
+    Returns a list of greeting dicts, or None if no GREETINGS: header exists.
+    The section is everything after the header line; blocks separated by
+    `---` are treated as individual greetings (regardless of leading marker).
+    """
+    m = re.search(r"(?im)^\s*greetings\s*:\s*$", md_text)
+    if not m:
+        return None
+    body = md_text[m.end():]
+    greetings = []
+    for part in re.split(r"\n---\n", body):
+        part = part.strip()
+        if len(part) < 50:
+            continue
+        scene_match = re.search(r"\*([^*]{10,})\*", part)
+        scene = scene_match.group(1).strip() if scene_match else ""
+        quotes = re.findall(r'"([^"]+)"', part)
+        opening = quotes[0] if quotes else ""
+        clean = re.sub(r"!\[.*?\]\(.*?\)", "", part)
+        clean = re.sub(r"\n{3,}", "\n\n", clean).strip()
+        greetings.append({"scene": scene, "opening": opening, "text": clean})
+    return greetings
 
 
 def _parse_greetings_clean_markdown(md_text: str) -> list:
@@ -652,7 +719,16 @@ def get_character_greetings(setting_id: str, name: str) -> list:
     try:
         with open(md_path, 'r', encoding='utf-8') as f:
             md_text = f.read()
-        return parse_greetings_from_markdown(md_text)
+        greetings = parse_greetings_from_markdown(md_text)
+        # Normalize SillyTavern template tokens for clean display
+        for g in greetings:
+            for key in ("scene", "opening", "text"):
+                g[key] = (
+                    g[key]
+                    .replace("{{char}}", name)
+                    .replace("{{user}}", "you")
+                )
+        return greetings
     except Exception as e:
         logger.error(f"Failed to parse greetings for {name}: {e}")
         return []

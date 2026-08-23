@@ -211,6 +211,57 @@ class TestMarkdownGreetings:
         db.upsert_character("guild_rpg", CHAR, "{}", "t.json")
         assert db.get_character_greetings("guild_rpg", "Eira") == []
 
+    def test_greetings_section_format(self, db, tmp_path: Path):
+        # Newer authoring format: an explicit GREETINGS: header followed by
+        # prose blocks separated by --- (no *scene* italic marker required).
+        md = (
+            "Profile text.\n\n"
+            "---\n\n"
+            "### DM COMBAT CHEAT SHEET\n\n"
+            "rules and numbers here.\n\n"
+            "GREETINGS:\n\n"
+            "{{char}} leaned against the guild hall bar, smirking.\n"
+            '"Well, well… an A-rank," he said.\n\n'
+            "---\n\n"
+            "The forest was thick with shadows. {{user}} stepped back.\n"
+            '"Brave, or foolish?" he mused.\n'
+        )
+        md_file = tmp_path / "k.md"
+        md_file.write_text(md)
+        db.upsert_character("guild_rpg", CHAR, "{}", "t.json")
+        db.set_character_md_path("guild_rpg", "Eira", str(md_file))
+        greetings = db.get_character_greetings("guild_rpg", "Eira")
+        assert len(greetings) == 2
+        # SillyTavern tokens normalized to name / "you"
+        assert "Eira" in greetings[0]["text"]
+        assert "you" in greetings[1]["text"]
+        assert "{{char}}" not in greetings[0]["text"]
+
+    def test_greetings_alternate_export_format(self, db, tmp_path: Path):
+        # SillyTavern export: 'First Message' / 'Alternate Greeting N' headers
+        # delimit blocks (no | table, no --- separators).
+        md = (
+            "### Basic\n- Name: Morwen\n\n"
+            "First Message (347 token(s))\n"
+            "*The guild hall was quiet.* \"Hello!\" she waved.\n"
+            "![](https://example.com/x.png)\n\n"
+            "Alternate Greetings\n"
+            "Alternate Greeting 1\n"
+            "*You found her at the graveyard.* \"Join my tea party?\"\n"
+            "Alternate Greeting 2\n"
+            "*A festival of lights filled the guild district with warm lanterns.* "
+            "\"Is it not wonderful?\" she asked, holding out a small basket of sweets.\n"
+        )
+        md_file = tmp_path / "m.md"
+        md_file.write_text(md)
+        db.upsert_character("guild_rpg", CHAR, "{}", "t.json")
+        db.set_character_md_path("guild_rpg", "Eira", str(md_file))
+        greetings = db.get_character_greetings("guild_rpg", "Eira")
+        assert len(greetings) == 3
+        # Image embeds stripped, narrative preserved
+        assert "![](https://example.com/x.png)" not in greetings[0]["text"]
+        assert "Hello!" in greetings[0]["text"]
+
 
 class TestThreatsLocationsTournaments:
     def test_threat_catalog_seeded_and_queried(self, db):
