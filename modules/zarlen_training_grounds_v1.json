@@ -1,0 +1,86 @@
+{
+  "module_name": "Zarlen's Training Grounds",
+  "points_budget": 75,
+  "description": "A five-room evaluation on the Aelthar Keldor Guild's Training Grounds. A rookie trainee must survive Zarlen's brutal promotion gauntlet to earn the instructor's nod. Zarlen (A-Rank Guild Instructor) is the final boss.",
+  "setting_id": "guild_rpg",
+  "starting_node": "node_01_guardian",
+  "presets": [
+    {
+      "name": "Guild Trainee",
+      "stat_body": 5,
+      "stat_mind": 5,
+      "stat_soul": 5
+    }
+  ],
+  "nodes": {
+    "node_01_guardian": {
+      "node_id": "node_01_guardian",
+      "title": "The Yard Gate",
+      "description": "Iron-reinforced timber gates open onto the Guild Training Grounds. A dormant practice automaton — a scarred training dummy rigged with weighted arms — stands posted at the threshold, its joints creaking. A weathered sign reads: 'Enter ready, leave alive.' Zarlen's voice echoes from somewhere deep in the yard: \"What are you staring at, rookie? Grab a practice weapon.\"",
+      "exits": {
+        "north": "node_02_puzzle"
+      },
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 0,
+        "dv": 12,
+        "fail_damage": 0
+      }
+    },
+    "node_02_puzzle": {
+      "node_id": "node_02_puzzle",
+      "title": "The Form Drill",
+      "description": "A marked practice floor lays out a precise footwork kata. Mistakes trigger a rack of padded arms that swing from the rafters. Zarlen watches from the rail, jabbing a hard finger at any trainee who loses focus. Discipline and pattern-reading, not brute force, open the path.",
+      "exits": {
+        "south": "node_01_guardian",
+        "east": "node_03_setback"
+      },
+      "required_check": {
+        "stat": "stat_mind",
+        "skill": 0,
+        "dv": 14,
+        "fail_damage": 0
+      }
+    },
+    "node_03_setback": {
+      "node_id": "node_03_setback",
+      "title": "The Sparring Pit",
+      "description": "A sunken pit ringed with cheering recruits. A partner-dummy lunges with unpredictable rhythm, testing whether the trainee can keep their guard up under pressure. A bad read means a rattling hit to the ribs — and Zarlen's cold note in the ledger.",
+      "exits": {
+        "west": "node_02_puzzle",
+        "east": "node_04_climax"
+      },
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 0,
+        "dv": 10,
+        "fail_damage": 8
+      }
+    },
+    "node_04_climax": {
+      "node_id": "node_04_climax",
+      "title": "Zarlen's Evaluation",
+      "description": "The center of the yard. Zarlen plants her boots in the absolute middle of the grid — the Scarred Gatekeeper, steel shortsword and dented buckler in hand — and beckons the trainee forward for the final sparring evaluation. Her Structural Fault is the decaying left leg that drains her endurance as the round counter climbs, imposing cumulative penalties to her defence. Her Sixth Guard is 'The Lich's Echo': the moment anyone she has taken responsibility for is struck down in her sight, her discipline shatters — she either erupts into the suicidal Pit Fighter's Rage or freezes in the Lich's Shadow. Her levers are the Anvil's Discipline (rigid routine), the Pit Fighter's Rage (self-destructive interception), and the Cripple's Hermitage (withdrawal). Pass her nod and the promotion is yours.",
+      "boss_character": "Zarlen",
+      "exits": {
+        "west": "node_03_setback",
+        "north": "node_05_reward"
+      },
+      "required_check": {
+        "stat": "stat_soul",
+        "skill": 0,
+        "dv": 16,
+        "fail_damage": 15
+      }
+    },
+    "node_05_reward": {
+      "node_id": "node_05_reward",
+      "title": "The Promotion",
+      "description": "Zarlen sheaths her blade and gives the single, grudging nod that unlocks the next rank. \"Acceptable. Don't make me regret it.\" A promotion certificate and a masterwork practice blade await in the quartermaster's chest.",
+      "exits": {
+        "south": "node_04_climax"
+      },
+      "required_check": null
+    }
+  }
+}
