@@ -11,6 +11,14 @@ git: "local-only, engine code scoped (2026-08-14)"
 
 Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sandbox** for the terminal. It pairs a Python-enforced BESM 4e (Tri-Stat System) rules simulation with local-LLM narrative generation via Ollama. V3 shipped on 2026-08-07 with full mechanical enforcement: Combat Techniques, Skills, Defects, and Shock Value are persisted in the roster DB and injected into every LLM shell turn. Multiple settings are registered (Guild RPG, Shota x Monsters 2, My Hero Academia, plus training-yard / Tomoe packages). The thin client runs the TUI; the big rig runs Ollama inference. **669 tests (668 pass, 1 skip) — every engine path regression-checked, including the roster/ingest importer suites.** Git was initialized 2026-08-14, **scoped to engine code only** — see Operational Notes for exactly what's excluded and why. As of 2026-08-22 the **Guild RPG cast + regions + organizations are wired into the live roster** via `engine/guild_ingest.py`, `engine/guild_region_ingest.py`, and `engine/guild_org_ingest.py` (deterministic extractors + safe-ingest guard, registry sheets as sole source of truth) — 45 guild_rpg character rows (38 adventurers + 7 bosses) + 16 location rows (4 macro-regions with full Narrative Syntax) + 1 organization row (Aelthar Keldor guild, full NS), see Lineage / What Works.
 
+## Greeting Coverage (2026-08-23)
+
+All **38 linked adventurer rows** have Character-Markdown greetings (First Message + Alternate Greeting N), parsed by `engine/guild_roster.parse_greetings_from_markdown` from the vault `Character Markdowns/`. Greeting blocks may be delimited by bare headers (`First Message`), SillyTavern `|` tables, `GREETINGS:` sections, or **H5 headers** (`##### Alternate Greeting N`); the parser also strips honorific prefixes in `Name:` fields (Professor, Archdruid, …) and accepts `_…_` / `*…*` italic scene prose. New vault markdowns use the H5 convention; `link_greetings_dryrun.py` links rows → markdowns idempotently (it will NOT override an existing `md_source_path`, so force-set via `set_character_md_path` when a card is split/renamed).
+
+**The 7 unlinked rows are INTENTIONAL — do NOT treat them as greeting gaps to fill:**
+- `Chieftain Gruk'thar` (A-Elite) — reusable humanoid-threat template (orcs, bandits, etc.); same asset-class as the bosses.
+- The 6 bosses: `The Abyssal Behemoth`, `The Undead Guardian`, `Korvath`, `Nythera`, `The Thunderheart Titan`, `Zarkoth` — hostile-only entities; their BESM boss sheets hold action syntax, the markdown vault is reserved for narrative + greetings of actual NPCs.
+
 ## Lineage
 
 *Chronological trail of the proposals and journal entries that built this project — lets a design model trace "how did we get here" without narration.*
