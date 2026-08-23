@@ -19,6 +19,8 @@ All **38 linked adventurer rows** have Character-Markdown greetings (First Messa
 - `Chieftain Gruk'thar` (A-Elite) — reusable humanoid-threat template (orcs, bandits, etc.); same asset-class as the bosses.
 - The 6 bosses: `The Abyssal Behemoth`, `The Undead Guardian`, `Korvath`, `Nythera`, `The Thunderheart Titan`, `Zarkoth` — hostile-only entities; their BESM boss sheets hold action syntax, the markdown vault is reserved for narrative + greetings of actual NPCs.
 
+**Sixth Guard leak auditor (2026-08-23):** `validate_sixth_guard.py` pulls each character's `sixth_guard` from the roster and judges every greeting via Cydonia (big-rig), flagging a greeting ONLY if it asserts immunity / permanent cure / the guard can never trigger. Player softening (meet-hook), planning/embracing the guard, and one-time emergency measures all resolve to HONORS. Re-run with `--only <name>` after any greeting edit. **Audit result 2026-08-23: 45 characters audited (38 with greetings), 0 leaks** — see `sixth_guard_audit_report.md`.
+
 ## Lineage
 
 *Chronological trail of the proposals and journal entries that built this project — lets a design model trace "how did we get here" without narration.*
