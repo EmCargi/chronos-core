@@ -206,7 +206,7 @@ def make_bottom_panel(narrative_history: list[str]) -> Panel:
     text = "\n".join(narrative_history)
     return Panel(text, title="[bold yellow]📜 NARRATIVE & RESOLUTION CHRONOLOGY 📜[/bold yellow]", border_style="yellow")
 
-def build_vitals_with_full_loadout(setting_id: str, char: CharacterSchema) -> dict:
+def build_vitals_with_full_loadout(setting_id: str, char: CharacterSchema, org_name: str | None = None) -> dict:
     """
     Compiles the FULL character loadout for the LLM shell. Injects narrative-syntax
     fields (Sixth Guard, Structural Fault, Three Levers) AND BESM rules fields
@@ -214,7 +214,7 @@ def build_vitals_with_full_loadout(setting_id: str, char: CharacterSchema) -> di
     Falls back to empty defaults if the character has no data.
     """
     import json
-    from engine.guild_roster import get_character
+    from engine.guild_roster import get_character, get_organization
     vitals = {
         # core vitals
         "name": char.name,
@@ -246,6 +246,16 @@ def build_vitals_with_full_loadout(setting_id: str, char: CharacterSchema) -> di
         vitals["skills"] = json.loads(roster_char.get("skills", "[]"))
         vitals["defects"] = json.loads(roster_char.get("defects", "[]"))
         vitals["shock_value"] = roster_char.get("shock_value", char.max_hp // 5)
+    # Home guild / hub (organization Narrative Syntax)
+    org = get_organization(setting_id, org_name) if org_name else None
+    vitals["org_name"] = org["name"] if org else ""
+    vitals["org_type"] = org["organization_type"] if org else ""
+    vitals["org_leader"] = org["leader"] if org else ""
+    vitals["org_base"] = org["base_of_operations"] if org else ""
+    vitals["org_scale"] = org["scale_tier"] if org else ""
+    vitals["org_structural_fault"] = org["structural_fault"] if org else ""
+    vitals["org_sixth_guard"] = org["sixth_guard"] if org else ""
+    vitals["org_levers"] = org["levers"] if org else ""
     return vitals
 
 def render_interface_grid(character_data: dict, current_node: dict, narrative_history: list[str], inventory_items: list) -> Layout:
@@ -332,6 +342,7 @@ def main():
     nav = load_runtime_navigation(session_id) or {}
     active_setting_id = nav.get("setting_id") or DEFAULT_SETTING
     active_module_name = nav.get("module_name") or ""
+    active_org = nav.get("org_name") or "Aelthar Keldor"
 
     # 3. Load active character from the canonical roster for the active setting
     roster_chars = list_characters(setting_id=active_setting_id)
@@ -350,7 +361,7 @@ def main():
     active_node_id = (nav.get("active_node_id") or "node_start")
     if active_node_id not in STORY_MAP:
         active_node_id = list(STORY_MAP.keys())[0]
-    save_runtime_snapshot(session_id, char, active_node_id, active_setting_id, active_module_name)
+    save_runtime_snapshot(session_id, char, active_node_id, active_setting_id, active_module_name, active_org)
 
     # Retrieve current active node schema
     active_node = NodeSchema(**STORY_MAP.get(active_node_id, list(STORY_MAP.values())[0]))
@@ -386,7 +397,7 @@ def main():
             
             # Temporarily pause live display to allow clean console stdin prompts
             live.stop()
-            console.print("[bold cyan]COMMANDS:[/bold cyan] [white]exit | examine | north | south | east | west | /attack | /loot | /roster | /settings | /setting <id> | /module <name> | /char <name> | /shop | /buy <item_id> | /wallet | /grant <silver> | /inventory | /loadout | /greetings | /startgreeting <n> | /use <item_id> | /effects | /provision [info] [filters] | /diceless | /maneuver | auto-ingest[/white]")
+            console.print("[bold cyan]COMMANDS:[/bold cyan] [white]exit | examine | north | south | east | west | /attack | /loot | /roster | /settings | /setting <id> | /module <name> | /char <name> | /org <name> | /orgs | /shop | /buy <item_id> | /wallet | /grant <silver> | /inventory | /loadout | /greetings | /startgreeting <n> | /use <item_id> | /effects | /provision [info] [filters] | /diceless | /maneuver | auto-ingest[/white]")
             try:
                 player_input = console.input("[bold magenta]Select action > [/bold magenta]").strip()
             except (KeyboardInterrupt, EOFError):
@@ -483,7 +494,7 @@ def main():
                         roster_chars = list_characters(setting_id=active_setting_id)
                         if roster_chars:
                             char = _roster_dict_to_char(roster_chars[0])
-                        save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name)
+                        save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name, active_org)
                         narrative_history.append(f"[bold green]System:[/bold green] Switched to setting '{active_setting_id}' (module: {active_module_name}). Active character: {char.name}.")
 
             # Action: /module <name> (switch campaign module within the active setting)
@@ -496,7 +507,7 @@ def main():
                     STORY_MAP, active_module_name = load_campaign_module(active_setting_id, target)
                     active_node_id = list(STORY_MAP.keys())[0]
                     active_node = NodeSchema(**STORY_MAP[active_node_id])
-                    save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name)
+                    save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name, active_org)
                     narrative_history.append(f"[bold green]System:[/bold green] Loaded module '{active_module_name}'.")
 
             # Action: /char <name> (switch active character within the setting)
@@ -512,8 +523,31 @@ def main():
                         narrative_history.append(f"[bold red]System:[/bold red] No character '{target}' in setting '{active_setting_id}'. Run /roster to list.")
                     else:
                         char = _roster_dict_to_char(roster_char)
-                        save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name)
+                        save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name, active_org)
                         narrative_history.append(f"[bold green]System:[/bold green] Active character set to {char.name} (SV={char.shock_value}).")
+
+            # Action: /org <name> (switch active home guild / hub)
+            elif player_input.lower().startswith("/org"):
+                parts = player_input.split()
+                if len(parts) < 2:
+                    narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /org <name> (run /orgs to list).")
+                else:
+                    target = " ".join(parts[1:])
+                    from engine.guild_roster import get_organization
+                    roster_org = get_organization(active_setting_id, target)
+                    if not roster_org:
+                        narrative_history.append(f"[bold red]System:[/bold red] No organization '{target}' in setting '{active_setting_id}'. Run /orgs to list.")
+                    else:
+                        active_org = roster_org["name"]
+                        save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name, active_org)
+                        narrative_history.append(f"[bold green]System:[/bold green] Active home guild set to {active_org} ({roster_org['organization_type']}).")
+
+            # Action: /orgs (list organizations in the active setting)
+            elif player_input.lower().startswith("/orgs"):
+                from engine.guild_roster import organization_summary
+                narrative_history.append("[bold yellow]System:[/bold yellow] Organizations in '{active_setting_id}':")
+                for line in organization_summary(active_setting_id).splitlines():
+                    narrative_history.append(f"[dim]{line}[/dim]")
 
             # Action: /shop [rank] (list setting item catalog)
             elif player_input.lower().startswith("/shop"):
@@ -674,7 +708,7 @@ def main():
                             narrative_history.append(f"[dim]{g['scene'][:100]}[/dim]" if g['scene'] else "")
                             narrative_history.append("")
                             # Inject greeting as the first narrative turn via LLM
-                            vitals = build_vitals_with_full_loadout(active_setting_id, char)
+                            vitals = build_vitals_with_full_loadout(active_setting_id, char, active_org)
                             try:
                                 compiled = bridge.compile_system_frame("besm_shell", vitals, {
                                     'node_id': f'greeting_{idx+1}',
@@ -715,7 +749,7 @@ def main():
                         if row:
                             char.current_hp = row[0]
                             char.current_ep = row[1]
-                        save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name)
+                        save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name, active_org)
                     else:
                         narrative_history.append(f"[bold red]Use Failed:[/bold red] {msg}")
 
@@ -1258,7 +1292,7 @@ def main():
                         STORY_MAP[active_node.node_id]["required_check"] = None
                         
                         # Save cleared status to SQLite snapshot
-                        save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name)
+                        save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name, active_org)
                     else:
                         fail_msg = f"[bold red]TELEMETRY FAILURE:[/bold red] Attack failed. (Roll: {roll} + Rank: {stat_rank} = {total} vs DV: {difficulty})"
                         narrative_history.append(fail_msg)
@@ -1285,7 +1319,7 @@ def main():
             elif player_input == "/loot":
                 narrative_history.append("[bold blue]Player:[/bold blue] Searching coordinates for equipment artifacts...")
 
-                vitals = build_vitals_with_full_loadout(active_setting_id, char)
+                vitals = build_vitals_with_full_loadout(active_setting_id, char, active_org)
                 
                 try:
                     compiled_prompt = bridge.compile_system_frame("besm_loot", vitals, node_dict)
@@ -1329,7 +1363,7 @@ def main():
             elif player_input.lower() == "examine":
                 narrative_history.append(f"[bold blue]Player:[/bold blue] Examining surroundings...")
 
-                vitals = build_vitals_with_full_loadout(active_setting_id, char)
+                vitals = build_vitals_with_full_loadout(active_setting_id, char, active_org)
                 
                 try:
                     compiled_prompt = bridge.compile_system_frame("besm_shell", vitals, node_dict)
@@ -1381,7 +1415,7 @@ def main():
                             
                             if success:
                                 active_node = NodeSchema(**target_node_data)
-                                save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name)
+                                save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name, active_org)
                                 _expired = tick_scene_effects(session_id, active_node.node_id)
                                 if _expired:
                                     narrative_history.append(f"[dim]System: {_expired} scene effect(s) expired as a round passed at '{active_node.title}'.[/dim]")
@@ -1394,7 +1428,7 @@ def main():
                     else:
                         # Move freely
                         active_node = NodeSchema(**target_node_data)
-                        save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name)
+                        save_runtime_snapshot(session_id, char, active_node.node_id, active_setting_id, active_module_name, active_org)
                         _expired = tick_scene_effects(session_id, active_node.node_id)
                         if _expired:
                             narrative_history.append(f"[dim]System: {_expired} scene effect(s) expired as a round passed at '{active_node.title}'.[/dim]")

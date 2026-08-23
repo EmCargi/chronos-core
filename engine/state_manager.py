@@ -89,6 +89,7 @@ def initialize_session_db(db_path: str) -> None:
                 session_id TEXT PRIMARY KEY,
                 setting_id TEXT NOT NULL DEFAULT 'guild_rpg',
                 module_name TEXT NOT NULL DEFAULT '',
+                org_name TEXT NOT NULL DEFAULT '',
                 active_node_id TEXT NOT NULL,
                 visited_nodes TEXT NOT NULL
             )
@@ -122,6 +123,7 @@ def init_db() -> None:
     initialize_session_db(DB_PATH)
     migrate_character_vitals_composite_key(DB_PATH)
     migrate_campaign_navigation_setting(DB_PATH)
+    migrate_campaign_navigation_org(DB_PATH)
 
 def ensure_scene_effects_table(conn) -> None:
     """Creates the transient, node-bound effect ledger if absent. Idempotent so
@@ -243,6 +245,21 @@ def migrate_campaign_navigation_setting(db_path: str) -> None:
         """)
         conn.execute("DROP TABLE campaign_navigation_old")
 
+def migrate_campaign_navigation_org(db_path: str) -> None:
+    """
+    One-time migration: campaign_navigation gains an `org_name` column so a session
+    can track its active home guild / hub (the organization whose Narrative Syntax is
+    injected into the shell). Non-destructive: existing rows get an empty default.
+    """
+    if not os.path.exists(db_path):
+        return
+    with sqlite3.connect(db_path) as conn:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(campaign_navigation)").fetchall()]
+        if "org_name" in cols:
+            return
+        logger.info("Migrating campaign_navigation to track org_name.")
+        conn.execute("ALTER TABLE campaign_navigation ADD COLUMN org_name TEXT NOT NULL DEFAULT ''")
+
 def migrate_character_vitals_composite_key(db_path: str) -> None:
     """
     One-time migration: character_vitals previously used session_id as the sole
@@ -276,7 +293,8 @@ def migrate_character_vitals_composite_key(db_path: str) -> None:
         conn.execute("DROP TABLE character_vitals_old")
 
 def save_runtime_snapshot(session_id: str, character: CharacterSchema, active_node: str,
-                          setting_id: str = "guild_rpg", module_name: str = "") -> None:
+                          setting_id: str = "guild_rpg", module_name: str = "",
+                          org_name: str = "") -> None:
     """
     Performs an idempotent upsert (INSERT OR REPLACE INTO) for both
     character stats and active navigation state parameters.
@@ -316,18 +334,18 @@ def save_runtime_snapshot(session_id: str, character: CharacterSchema, active_no
         # Idempotent upsert campaign navigation
         conn.execute("""
             INSERT OR REPLACE INTO campaign_navigation (
-                session_id, setting_id, module_name, active_node_id, visited_nodes
-            ) VALUES (?, ?, ?, ?, ?)
-        """, (session_id, setting_id, module_name, active_node, visited_nodes_json))
+                session_id, setting_id, module_name, org_name, active_node_id, visited_nodes
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        """, (session_id, setting_id, module_name, org_name, active_node, visited_nodes_json))
         
     logger.info(f"Saved runtime snapshot for session_id {session_id} at node {active_node}.")
 
 def load_runtime_navigation(session_id: str) -> dict | None:
-    """Returns the persisted navigation state (setting_id, module_name, active_node_id) or None."""
+    """Returns the persisted navigation state (setting_id, module_name, org_name, active_node_id) or None."""
     with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT setting_id, module_name, active_node_id FROM campaign_navigation WHERE session_id = ?",
+            "SELECT setting_id, module_name, org_name, active_node_id FROM campaign_navigation WHERE session_id = ?",
             (session_id,)
         ).fetchone()
         return dict(row) if row else None

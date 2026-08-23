@@ -158,3 +158,34 @@ def test_org_update_existing_enriches(tmp_path, tmp_roster):
     assert row["organization_type"] == "guild"
     assert row["leader"] == "Guild Master Sylvara Duskveil (S-Rank High Elf)"
     assert row["base_of_operations"] == "The Capital City"
+
+
+def test_shell_injects_org_context():
+    """The org Narrative Syntax must surface in the compiled besm_shell prompt."""
+    import sys
+    sys.path.insert(0, "/home/megane/dev")  # expose core.* used by engine.llm_bridge
+    from engine.llm_bridge import LLMBridge
+
+    vitals = {
+        "name": "Kari", "current_hp": 80, "current_ep": 80,
+        "stat_body": 5, "stat_mind": 5, "stat_soul": 5,
+        "max_hp": 80, "max_ep": 80, "base_acv": 5, "base_dcv": 5,
+        "structural_fault": "", "sixth_guard": "", "levers": "",
+        "combat_techniques": [], "skills": [], "defects": [],
+        "shock_value": 16,
+        "org_name": "Aelthar Keldor", "org_type": "guild",
+        "org_leader": "Sylvara Duskveil", "org_base": "The Capital City",
+        "org_scale": "Continental Guild Network",
+        "org_structural_fault": "The Institutional Dependency",
+        "org_sixth_guard": "Failure Trigger: internal rogue infighting",
+        "org_levers": "Containment: the civic balancing ledger",
+    }
+    node = {"node_id": "node_01", "title": "Yard Gate", "description": "packed dirt yard"}
+    out = LLMBridge().compile_system_frame("besm_shell", vitals, node)
+    assert "Aelthar Keldor" in out
+    assert "The Institutional Dependency" in out
+    assert "Failure Trigger: internal rogue infighting" in out
+    # Placeholders must be resolved, not left literal.
+    assert "{org_name}" not in out
+    assert "{org_structural_fault}" not in out
+    assert "{org_levers}" not in out
