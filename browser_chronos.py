@@ -12,6 +12,7 @@ Run:
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -32,6 +33,10 @@ from engine import (
     resolve_tactical_stance, two_weapon_attack, strike_to_wound,
     touch_attack, resolve_called_shot, grapple_attack_edges,
     grabbed_condition, escape_grapple, pin_condition, multi_target_dispersion,
+    technique_obstacle_reduction, technique_edge_bonus,
+    defect_hp_modifier, defect_damage_modifier, defect_blocks_recovery,
+    defect_achilles_multiplier, defect_bane_damage,
+    defect_sensory_obstacle, defect_shortcoming_obstacle,
     init_db, save_runtime_snapshot, load_runtime_navigation,
     log_narrative_turn, add_loot_to_inventory, get_character_inventory,
     init_economy_db, catalog_summary, get_wallet, grant_silver,
@@ -44,12 +49,37 @@ from engine.guild_roster import (
     init_roster_db, list_characters, get_character, get_setting,
     list_settings, list_locations, roster_summary,
     load_campaign_module, roster_dict_to_char,
+    get_roster_connection, get_character_loadout, format_loadout_summary,
+    get_character_greetings, format_greeting_list,
+    location_summary, get_location, threat_summary, get_threat,
 )
 from engine.state_manager import (
     get_db_connection, init_db as init_state_db, set_active_db_path,
     WEB_SESSION_DB_PATH,
 )
 from core.ollama import default_chain, post_json
+
+# ── render helpers ────────────────────────────────────────────────────────
+
+# CP-8: active_char_name — normalized name accessor (Pydantic attr vs raw dict row)
+def active_char_name(char) -> str:
+    return getattr(char, "name", None) or (char.get("name") if isinstance(char, dict) else "?")
+
+
+# CP-9: Rich markup stripper for st.markdown. Targets ONLY known Rich style tags
+# (colors, bold/dim/italic/…, compound "bold red on black"), leaving semantic
+# markers like [Hub], [Quest], [D-Rank] and plain prose brackets intact.
+_RICH_STYLE_TOKEN = (
+    r"(?:bold|dim|italic|underline|strike|blink|reverse|conceal"
+    r"|(?:bright_)?(?:black|red|green|yellow|blue|magenta|cyan|white|grey|gray)"
+    r"|gold1|gold3|orange3|sky_blue1|spring_green3|default|on)"
+)
+_RICH_TAG_RE = re.compile(rf"\[/?{_RICH_STYLE_TOKEN}(?:\s+{_RICH_STYLE_TOKEN})*\]", re.IGNORECASE)
+
+
+def _rich_to_markdown(text: str) -> str:
+    """Strip Rich console markup for st.markdown, preserving semantic [Hub]/[Quest] tags."""
+    return _RICH_TAG_RE.sub("", text)
 
 # ── page config ───────────────────────────────────────────────────────────
 st.set_page_config(page_title="Chronos Core — Web Edition", layout="wide")
@@ -158,9 +188,9 @@ with col2:
 st.divider()
 st.subheader("📜 Narrative Log")
 
-# Display narrative history
+# Display narrative history (Rich markup stripped for st.markdown — CP-9)
 for entry in st.session_state.narrative_history:
-    st.markdown(entry)
+    st.markdown(_rich_to_markdown(entry))
 
 # Command input
 st.divider()
@@ -173,69 +203,294 @@ WEB_SESSION_ID = "web_port_session"
 if st.button("👁️ Examine Surroundings", type="primary", use_container_width=True):
     player_input = "examine"
 
-# Command handler — mirrors chronos.py if/elif dispatch
+# Command handler — mirrors chronos.py if/elif dispatch (Phase A display first, Director fallback)
 if player_input:
     # Log the action
     log_narrative_turn(WEB_SESSION_ID, "Player", player_input)
 
-    # Build vitals for LLM bridge
-    vitals = {
-        "name": char.name,
-        "stat_body": char.stat_body,
-        "stat_mind": char.stat_mind,
-        "stat_soul": char.stat_soul,
-        "combat_techniques": char.combat_techniques,
-        "skills": char.skills,
-        "defects": char.defects,
-        "shock_value": char.shock_value,
-        "max_hp": char.max_hp,
-        "max_ep": char.max_ep,
-        "active_node": {"title": active_node.title, "node_id": active_node.node_id},
-        "description": active_node.description or "",
-    }
+    cmd = player_input.strip()
+    cmd_lower = cmd.lower()
+    char_name = active_char_name(char)
+    nh = st.session_state.narrative_history
+    handled = False
 
-    # Compile system frame (prompts/bound formatters)
-    from engine.llm_bridge import LLMBridge
-    bridge = LLMBridge()
-    compiled_prompt = bridge.compile_system_frame(DEFAULT_RULES, vitals, {"title": active_node.title, "node_id": active_node.node_id})
+    # ── Phase A: read-only display commands (zero LLM, zero writes) ───────
+    if cmd_lower == "/engine":
+        nh.append("[bold yellow]System:[/bold yellow] BESM Engine Commands:")
+        for c in [
+            "/shock <dmg>", "/resist <poison|sleep|paralysis> [blight]",
+            "/fall <meters>", "/range <max> <distance>",
+            "/size <rank>", "/defence <dmg> [AR] [FF_AR] [pen]",
+            "/scv", "/sanity <mild|mod|major|severe|cat>",
+            "/recover", "/techniques", "/defects",
+            "/diceless <defender_cv> [AR] [extra_def] [edge]", "/diceless hedge <target> [stat]",
+            "/maneuver <subcommand>", "/effects",
+            "/roster", "/lore", "/settings", "/shop", "/wallet",
+            "/inventory", "/loadout", "/greetings", "/location", "/threat",
+        ]:
+            nh.append(f"  [dim]{c}[/dim]")
+        handled = True
 
-    # Dispatch Ollama turn
-    with st.spinner("AI Director is composing..."):
-        response_dict = bridge.dispatch_ollama_turn(
-            model_name=ACTIVE_MODEL,
-            complete_context=compiled_prompt,
-            user_input=player_input,
+    elif cmd_lower == "/roster":
+        setting_meta = get_setting(setting_id) or {}
+        roster_text = roster_summary(setting_id=setting_id)
+        label = setting_meta.get("character_label", "Rank")
+        nh.append(f"[bold yellow]System:[/bold yellow] [{setting_meta.get('name', setting_id)}] roster ({label} column):")
+        for line in roster_text.splitlines():
+            nh.append(f"[dim]{line}[/dim]")
+        handled = True
+
+    elif cmd_lower == "/lore":
+        with get_roster_connection() as conn:
+            row = conn.execute(
+                "SELECT name, description, setting_lore FROM settings WHERE setting_id = ?",
+                (setting_id,)
+            ).fetchone()
+        if row:
+            nh.append(f"[bold gold1]═══ SETTING: {row[0]} ═══[/bold gold1]")
+            if row[1]:
+                nh.append(f"  [dim]{row[1]}[/dim]")
+            if row[2]:
+                for line in row[2].split('. '):
+                    if line.strip():
+                        nh.append(f"  {line.strip()}.")
+        else:
+            nh.append("[bold yellow]System:[/bold yellow] No lore available for current setting.")
+        handled = True
+
+    elif cmd_lower == "/settings":
+        nh.append("[bold yellow]System:[/bold yellow] Registered settings:")
+        for s in list_settings():
+            marker = " >" if s["setting_id"] == setting_id else "  "
+            nh.append(f"[dim]{marker} [{s['setting_id']}] {s['name']} (module: {s['default_module']})[/dim]")
+        handled = True
+
+    elif cmd_lower.startswith("/shop"):
+        parts = cmd.split()
+        rank_filter = parts[1].upper() if len(parts) > 1 else None
+        shop_text = catalog_summary(setting_id, rank_filter)
+        nh.append(f"[bold yellow]System:[/bold yellow] [{setting_id}] shop listing:")
+        for line in shop_text.splitlines():
+            nh.append(f"[dim]{line}[/dim]")
+        handled = True
+
+    elif cmd_lower.startswith("/wallet"):
+        parts = cmd.split()
+        name = " ".join(parts[1:]) if len(parts) > 1 else char_name
+        balance = get_wallet(setting_id, name)
+        nh.append(f"[bold yellow]System:[/bold yellow] [{setting_id}] {name} wallet: [bold white]{balance} sp[/bold white].")
+        handled = True
+
+    elif cmd_lower == "/inventory":
+        inv_text = inventory_summary(setting_id, char_name)
+        nh.append(f"[bold yellow]System:[/bold yellow] [{setting_id}] {char_name} inventory:")
+        for line in inv_text.splitlines():
+            nh.append(f"[dim]{line}[/dim]")
+        handled = True
+
+    elif cmd_lower == "/loadout":
+        loadout = get_character_loadout(setting_id, char_name)
+        if loadout:
+            nh.append(f"[bold yellow]System:[/bold yellow] [{setting_id}] {char_name} full loadout:")
+            for line in format_loadout_summary(loadout).splitlines():
+                nh.append(f"  {line}")
+        else:
+            nh.append("[bold red]System:[/bold red] No loadout data available.")
+        handled = True
+
+    elif cmd_lower == "/greetings":
+        greetings = get_character_greetings(setting_id, char_name)
+        if greetings:
+            nh.append(f"[bold yellow]System:[/bold yellow] [{setting_id}] {char_name} session starters ({len(greetings)}):")
+            for line in format_greeting_list(greetings).splitlines():
+                nh.append(f"  {line}")
+            nh.append("[dim]Use /startgreeting <number> to begin a session. [Hub] greetings open at the guild hall.[/dim]")
+        else:
+            nh.append("[bold yellow]System:[/bold yellow] No greetings available for this character (source file missing).")
+        handled = True
+
+    elif cmd_lower == "/scv":
+        scv = character_scv(char)
+        demure = -2 * (next((d.get("rank", 0) for d in (char.defects or []) if isinstance(d, dict) and d.get("name", "").lower() == "demure"), 0))
+        nh.append(
+            f"[bold white]Social Profile:[/bold white] SCV={scv} (Mind{char.stat_mind}+Soul{char.stat_soul})/2"
+            + (f" Demure{demure}" if demure else "")
+            + f" | Society Points={scv} | Recovery: 1/hour"
         )
+        handled = True
 
-    if response_dict.get("success"):
-        prose, mechanical_data = bridge.inspect_llm_output(response_dict["response"])
-        st.markdown(prose)
+    elif cmd_lower == "/techniques":
+        techs = char.combat_techniques or []
+        if not techs:
+            nh.append("[dim]No combat techniques equipped.[/dim]")
+        else:
+            nh.append("[bold white]Active Technique Effects:[/bold white]")
+            for t in techs:
+                if isinstance(t, dict):
+                    name = t.get("name", "?")
+                    lvl = t.get("level", 1)
+                    effects = []
+                    if technique_obstacle_reduction(techs, "range"):
+                        effects.append("range penalty removal")
+                    if technique_obstacle_reduction(techs, "called_shot"):
+                        effects.append("called shot reduction")
+                    if technique_edge_bonus(techs, "initiative"):
+                        effects.append(f"initiative {'Minor' if technique_edge_bonus(techs, 'initiative')==1 else 'Major'} Edge")
+                    if technique_edge_bonus(techs, "amplify_aim"):
+                        effects.append("Aim/Wait → Major Edge")
+                    nh.append(f"  [bold]{name}[/bold] Lv{lvl}" + (f" — {', '.join(effects)}" if effects else ""))
+        handled = True
 
-        # Apply mechanical payload if present
-        if mechanical_data:
-            # Example: handle damage, healing, item acquisition
-            if "hp_loss" in mechanical_data:
-                delta = mechanical_data["hp_loss"]
-                char.current_hp = max(0, char.current_hp - delta)
-                st.session_state.char = char
-            if "item_gain" in mechanical_data:
-                item = mechanical_data["item_gain"]
-                add_loot_to_inventory(WEB_SESSION_ID, item)
-                st.success(f"Item acquired: {item.get('item_name', 'unknown')}")
-            if "wallet_change" in mechanical_data:
-                delta = mechanical_data["wallet_change"]
-                # Simplified wallet update
-                st.session_state.wallet_balance = getattr(st.session_state, "wallet_balance", 0) + delta
+    elif cmd_lower == "/defects":
+        defs = char.defects or []
+        if not defs:
+            nh.append("[dim]No defects.[/dim]")
+        else:
+            nh.append("[bold red]Active Defect Effects:[/bold red]")
+            hp_mod = defect_hp_modifier(defs)
+            dmg_mod = defect_damage_modifier(defs)
+            blocks = defect_blocks_recovery(defs)
+            achilles = defect_achilles_multiplier(defs, "")
+            bane = defect_bane_damage(defs)
+            if hp_mod:
+                nh.append(f"  Fragile: [red]{hp_mod} max HP[/red]")
+            if dmg_mod:
+                nh.append(f"  Reduced Damage: [red]{dmg_mod} Damage Multiplier[/red]")
+            if achilles > 1:
+                nh.append(f"  Achilles Heel: [red]×{achilles:.0f} damage from source[/red]")
+            if bane:
+                nh.append(f"  Bane: [red]{bane} dmg/round[/red]")
+            if blocks["hp"]:
+                nh.append("  No Healing: [red]blocked[/red]")
+            if blocks["rest"]:
+                nh.append("  Nightmares: [red]rest recovery blocked[/red]")
+            if defect_sensory_obstacle(defs):
+                nh.append("  Sensory Impairment: [red]Major Obstacle on perception[/red]")
+            for d in defs:
+                if isinstance(d, dict):
+                    short = defect_shortcoming_obstacle(defs, d.get("aspect", ""))
+                    if short:
+                        nh.append(f"  Shortcoming ({d.get('aspect', '?')}): [red]{short.title()} Obstacle[/red]")
+        handled = True
 
-        # Update narrative history
-        st.session_state.narrative_history.append(f"[bold blue]Player:[/bold blue] {player_input}")
-        st.session_state.narrative_history.append(f"[bold yellow]AI Director:[/bold yellow] {prose}")
+    elif cmd_lower == "/effects":
+        effects = get_scene_effects(WEB_SESSION_ID, active_node.node_id)
+        if not effects:
+            nh.append("[bold yellow]System:[/bold yellow] No active scene effects at this node.")
+        else:
+            nh.append(f"[bold yellow]System:[/bold yellow] Active scene effects at '{active_node.title}':")
+            for e in effects:
+                nh.append(
+                    f"  [bold cyan]{e['kind']}[/bold cyan] ({e['rounds_remaining']} round{'s' if e['rounds_remaining'] != 1 else ''} left) [dim]{e['description']}[/dim]"
+                )
+        handled = True
 
-        # Re-construct char in session state after mutation
-        st.session_state.char = char
+    elif cmd_lower.startswith("/location"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append(f"[bold yellow]System:[/bold yellow] Location Atlas:")
+            for line in location_summary(setting_id).splitlines():
+                nh.append(line)
+        else:
+            name = " ".join(parts[1:])
+            loc = get_location(setting_id, name)
+            if loc:
+                nh.append(f"[bold cyan]═══ LOCATION: {loc['name']} [{loc['location_type']}] ═══[/bold cyan]")
+                nh.append(f"  Region: {loc['region']} | Travel: {loc['travel_from_capital'] or 'N/A'}")
+                nh.append(f"  [dim]{loc['description']}[/dim]")
+                if loc['notes']:
+                    nh.append(f"  [italic]{loc['notes']}[/italic]")
+            else:
+                nh.append(f"[bold yellow]System:[/bold yellow] No location matching '{name}'. Try /location alone to list all.")
+        handled = True
+
+    elif cmd_lower.startswith("/threat"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append(f"[bold yellow]System:[/bold yellow] Threat Index:")
+            for line in threat_summary(setting_id).splitlines():
+                nh.append(line)
+        else:
+            name = " ".join(parts[1:])
+            t = get_threat(setting_id, name)
+            if t:
+                nh.append(f"[bold red]═══ THREAT: {t['name']} [{t['threat_type']}] ═══[/bold red]")
+                nh.append(f"  Size {t['size_rank']} | HP {t['max_hp']} | AR {t['armour_rating']} | DMG {t['base_damage']}")
+                nh.append(f"  Body {t['stat_body']} Mind {t['stat_mind']} Soul {t['stat_soul']}")
+                nh.append(f"  [dim]{t['description']}[/dim]")
+                if t['lore']:
+                    nh.append(f"  [italic]{t['lore']}[/italic]")
+            else:
+                nh.append(f"[bold yellow]System:[/bold yellow] No threat matching '{name}'. Try /threat alone to list all.")
+        handled = True
+
+    # ── Director fallback: free text + examine → LLM (unchanged) ──────────
+    elif cmd_lower == "examine" or not cmd_lower.startswith("/"):
+        # Build vitals for LLM bridge
+        vitals = {
+            "name": char.name,
+            "stat_body": char.stat_body,
+            "stat_mind": char.stat_mind,
+            "stat_soul": char.stat_soul,
+            "combat_techniques": char.combat_techniques,
+            "skills": char.skills,
+            "defects": char.defects,
+            "shock_value": char.shock_value,
+            "max_hp": char.max_hp,
+            "max_ep": char.max_ep,
+            "active_node": {"title": active_node.title, "node_id": active_node.node_id},
+            "description": active_node.description or "",
+        }
+
+        # Compile system frame (prompts/bound formatters)
+        from engine.llm_bridge import LLMBridge
+        bridge = LLMBridge()
+        compiled_prompt = bridge.compile_system_frame(DEFAULT_RULES, vitals, {"title": active_node.title, "node_id": active_node.node_id})
+
+        # Dispatch Ollama turn
+        with st.spinner("AI Director is composing..."):
+            response_dict = bridge.dispatch_ollama_turn(
+                model_name=ACTIVE_MODEL,
+                complete_context=compiled_prompt,
+                user_input=player_input,
+            )
+
+        if response_dict.get("success"):
+            prose, mechanical_data = bridge.inspect_llm_output(response_dict["response"])
+            st.markdown(prose)
+
+            # Apply mechanical payload if present
+            if mechanical_data:
+                if "hp_loss" in mechanical_data:
+                    delta = mechanical_data["hp_loss"]
+                    char.current_hp = max(0, char.current_hp - delta)
+                    st.session_state.char = char
+                if "item_gain" in mechanical_data:
+                    item = mechanical_data["item_gain"]
+                    add_loot_to_inventory(WEB_SESSION_ID, item)
+                    st.success(f"Item acquired: {item.get('item_name', 'unknown')}")
+                if "wallet_change" in mechanical_data:
+                    delta = mechanical_data["wallet_change"]
+                    st.session_state.wallet_balance = getattr(st.session_state, "wallet_balance", 0) + delta
+
+            # Update narrative history
+            nh.append(f"[bold blue]Player:[/bold blue] {player_input}")
+            nh.append(f"[bold yellow]AI Director:[/bold yellow] {prose}")
+
+            # Re-construct char in session state after mutation
+            st.session_state.char = char
+        else:
+            st.error(f"LLM call failed: {response_dict.get('error', 'unknown error')}")
+            nh.append(f"[bold red]System Error:[/bold red] LLM call failed: {response_dict.get('error', 'unknown')}")
+
     else:
-        st.error(f"LLM call failed: {response_dict.get('error', 'unknown error')}")
-        st.session_state.narrative_history.append(f"[bold red]System Error:[/bold red] LLM call failed: {response_dict.get('error', 'unknown')}")
+        # Unknown /command — never sent to the LLM
+        nh.append(f"[bold red]System:[/bold red] Unknown action '{player_input}'. Try /engine for the command list.")
+        handled = True
+
+    # CP-6: feed output persisted in session_state; refresh the frame to show it
+    if handled:
+        st.rerun()
 
 else:
     st.info("Enter a command above or click **Examine Surroundings** to begin.")

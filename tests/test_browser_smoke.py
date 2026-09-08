@@ -78,3 +78,114 @@ def test_active_node_selectable(app):
     sel = next((w for w in app.sidebar if getattr(w, "label", "") == "Active Node"), None)
     assert sel is not None
     assert len(sel.options) > 0
+
+
+# ── Phase A: read-only display commands (zero LLM, zero writes) ─────────────
+
+def _send_command(app, text):
+    """Submit a chat command and re-run (display commands append + st.rerun)."""
+    app.chat_input[0].set_value(text)
+    app.run()
+
+
+def _all_markdown(app):
+    return [m.value for m in app.markdown]
+
+
+def test_display_command_engine(app):
+    """/engine lists the command palette without an LLM call."""
+    _send_command(app, "/engine")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "BESM Engine Commands" in joined
+    assert "/diceless <defender_cv>" in joined
+    assert "/maneuver <subcommand>" in joined
+
+
+def test_display_command_roster(app):
+    """/roster renders the setting roster table."""
+    _send_command(app, "/roster")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "roster" in joined
+    assert "Guild Rank" in joined or "[A-Rank" in joined
+
+
+def test_display_command_settings(app):
+    """/settings lists registered settings with the active marker."""
+    _send_command(app, "/settings")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Registered settings" in joined
+    assert "guild_rpg" in joined
+
+
+def test_display_command_wallet(app):
+    """/wallet shows the active character's balance."""
+    _send_command(app, "/wallet")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "wallet:" in joined
+    assert "sp" in joined
+
+
+def test_display_command_scv(app):
+    """/scv computes the social combat value locally."""
+    _send_command(app, "/scv")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Social Profile" in joined
+    assert "SCV=" in joined
+
+
+def test_display_command_inventory(app):
+    """/inventory renders the character's owned items."""
+    _send_command(app, "/inventory")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "inventory:" in joined
+
+
+def test_display_command_greetings(app):
+    """/greetings lists session starters — either tagged [Hub]/[Quest] rows or a
+    graceful no-greetings fallback for unlinked (boss/threat) characters."""
+    _send_command(app, "/greetings")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    # default boot char is a boss with no linked greetings → fallback path
+    assert "session starters" in joined or "No greetings available" in joined
+
+
+def test_display_command_unknown(app):
+    """Unknown /commands get a usage warning, never an LLM call."""
+    _send_command(app, "/not_a_real_command")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Unknown action" in joined
+
+
+def test_rich_stripper_preserves_semantic_tags():
+    """CP-9: the stripper removes Rich tags but keeps [Hub]/[Quest]/[D-Rank]."""
+    from browser_chronos import _rich_to_markdown
+    out = _rich_to_markdown("[dim][Hub][/dim] greeting [bold red]alert[/bold red] [D-Rank]")
+    assert "[Hub]" in out
+    assert "[D-Rank]" in out
+    assert "[bold" not in out
+    assert "[dim]" not in out
+
+
+def test_greeting_list_tags_survive_stripper():
+    """CP-9 end-to-end: format_greeting_list emits [dim][Hub][/dim]; the web
+    stripper must leave the semantic [Hub]/[Quest] marker intact."""
+    from browser_chronos import _rich_to_markdown
+    from engine.guild_roster import init_roster_db, get_character_greetings, format_greeting_list
+    init_roster_db()
+    greetings = get_character_greetings("guild_rpg", "Eira")
+    if not greetings:
+        import pytest
+        pytest.skip("Eira greeting markdown missing from vault")
+    rendered = format_greeting_list(greetings)
+    assert "[Hub]" in rendered or "[Quest]" in rendered
+    cleaned = _rich_to_markdown(rendered)
+    assert "[Hub]" in cleaned or "[Quest]" in cleaned
+    assert "[dim]" not in cleaned
