@@ -103,26 +103,10 @@ def make_progress_bar(current: int, maximum: int, color: str) -> str:
 def _roster_dict_to_char(rc: dict) -> CharacterSchema:
     """
     Convert a roster DB dict to a CharacterSchema with all BESM fields populated.
-    Centralizes the JSON parsing for combat_techniques, skills, defects.
+    Delegates to the canonical engine copy (engine.guild_roster.roster_dict_to_char).
     """
-    import json
-    char = CharacterSchema(
-        name=rc["name"],
-        gender=rc.get("gender", ""),
-        race=rc.get("race", ""),
-        stat_body=rc["stat_body"],
-        stat_mind=rc["stat_mind"],
-        stat_soul=rc["stat_soul"],
-        current_hp=rc.get("max_hp"),
-        current_ep=rc.get("max_ep")
-    )
-    char.points_budget = rc.get("points_budget", 75)
-    char.shock_value = rc.get("shock_value", char.max_hp // 5)
-    char.combat_techniques = json.loads(rc.get("combat_techniques", "[]"))
-    char.skills = json.loads(rc.get("skills", "[]"))
-    char.defects = json.loads(rc.get("defects", "[]"))
-    char.spellbook = json.loads(rc.get("spellbook", "[]"))
-    return char
+    from engine.guild_roster import roster_dict_to_char
+    return roster_dict_to_char(rc)
 
 
 def make_left_panel(char: CharacterSchema) -> Panel:
@@ -287,36 +271,10 @@ def render_interface_grid(character_data: dict, current_node: dict, narrative_hi
 def load_campaign_module(setting_id: str, module_name: str | None = None) -> tuple:
     """
     Loads a campaign module (STORY_MAP dict + module name) for the active setting.
-    Falls back to the setting's default_module, then to a built-in fallback map.
-    Returns (story_map, resolved_module_name).
+    Delegates to the canonical engine copy (engine.guild_roster.load_campaign_module).
     """
-    from engine.guild_roster import get_setting
-
-    setting = get_setting(setting_id) or {}
-    resolved = module_name or setting.get("default_module", "")
-    module_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "modules", resolved)
-    try:
-        if resolved and os.path.exists(module_path):
-            with open(module_path, "r", encoding="utf-8") as f:
-                module_data = json.load(f)
-            story_map = module_data.get("nodes", {})
-            resolved = module_data.get("module_name", resolved)
-            logger.info(f"[{setting_id}] Loaded campaign module '{resolved}' with {len(story_map)} nodes.")
-            return story_map, resolved
-    except Exception as e:
-        logger.error(f"Failed to load campaign map '{resolved}' for {setting_id}: {e}")
-
-    # Fallback default map
-    logger.warning(f"No valid module for setting '{setting_id}'. Using built-in fallback map.")
-    return {
-        "node_start": {
-            "node_id": "node_start",
-            "title": "The Chronos Diagnostic Chamber",
-            "description": "A pristine obsidian enclosure humming with low-frequency mesh telemetry seals.",
-            "exits": {"north": "node_corridor"},
-            "required_check": None
-        }
-    }, "builtin_fallback"
+    from engine.guild_roster import load_campaign_module as _load
+    return _load(setting_id, module_name)
 
 def _obstacle_label(weight: int) -> str:
     """Turn an obstacle weight into its BESM-facing label for the TUI echo."""

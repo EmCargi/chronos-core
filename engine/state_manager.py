@@ -15,6 +15,25 @@ logger = logging.getLogger("ChronosCore.StateManager")
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "chronos_session.db")
+WEB_SESSION_DB_PATH = os.path.join(DATA_DIR, "chronos_web_session.db")
+
+# Module-level override so the web port (browser_chronos.py) can redirect ALL
+# session-DB access to chronos_web_session.db without touching the CLI's
+# chronos_session.db. Defaults to the CLI path; the CLI never sets it, so its
+# behavior and the existing 681-test suite are unchanged. (CP-2)
+ACTIVE_DB_PATH = os.environ.get("CHRONOS_DB_PATH", DB_PATH)
+
+
+def set_active_db_path(path: str) -> None:
+    """Redirect all subsequent session-DB reads/writes to `path`.
+
+    Reassigns the module-level ACTIVE_DB_PATH global so every function that
+    opens the session DB (get_db_connection, init_db, run_db_checkpoint, ...)
+    targets the new file. Used by the web port to isolate chronos_web_session.db.
+    """
+    global ACTIVE_DB_PATH
+    ACTIVE_DB_PATH = path
+    logger.info(f"Active session DB redirected to: {path}")
 
 @contextmanager
 def get_db_connection() -> Generator[sqlite3.Connection, None, None]:
@@ -23,7 +42,7 @@ def get_db_connection() -> Generator[sqlite3.Connection, None, None]:
     Performs commits on success and rollback on exceptions.
     """
     os.makedirs(DATA_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(ACTIVE_DB_PATH)
     try:
         yield conn
         conn.commit()
@@ -39,7 +58,7 @@ def run_db_checkpoint() -> str:
     Executes an automated backup of the database file before runtime updates.
     Returns the path to the backup checkpoint snapshot, or empty string if no DB file exists.
     """
-    if not os.path.exists(DB_PATH):
+    if not os.path.exists(ACTIVE_DB_PATH):
         logger.info("No active database session found to checkpoint.")
         return ""
     
@@ -51,7 +70,7 @@ def run_db_checkpoint() -> str:
     backup_path = os.path.join(checkpoint_dir, backup_filename)
     
     try:
-        shutil.copy2(DB_PATH, backup_path)
+        shutil.copy2(ACTIVE_DB_PATH, backup_path)
         logger.info(f"Automated checkpoint backup completed successfully at: {backup_path}")
         return backup_path
     except Exception as e:
@@ -120,10 +139,10 @@ def init_db() -> None:
     Performs initial connection routing, directory safety initialization,
     and tables setup.
     """
-    initialize_session_db(DB_PATH)
-    migrate_character_vitals_composite_key(DB_PATH)
-    migrate_campaign_navigation_setting(DB_PATH)
-    migrate_campaign_navigation_org(DB_PATH)
+    initialize_session_db(ACTIVE_DB_PATH)
+    migrate_character_vitals_composite_key(ACTIVE_DB_PATH)
+    migrate_campaign_navigation_setting(ACTIVE_DB_PATH)
+    migrate_campaign_navigation_org(ACTIVE_DB_PATH)
 
 def ensure_scene_effects_table(conn) -> None:
     """Creates the transient, node-bound effect ledger if absent. Idempotent so

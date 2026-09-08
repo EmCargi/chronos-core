@@ -1234,3 +1234,64 @@ def list_tournaments(setting_id: str) -> list:
             (setting_id,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def load_campaign_module(setting_id: str, module_name: str | None = None) -> tuple:
+    """Load a campaign module (STORY_MAP dict + resolved module name).
+
+    Falls back to the setting's default_module, then to a built-in fallback map.
+    Returns (story_map, resolved_module_name). Canonical copy — the TUI
+    (chronos.py) and web port (browser_chronos.py) both import from here.
+    """
+    setting = get_setting(setting_id) or {}
+    resolved = module_name or setting.get("default_module", "")
+    module_path = os.path.join(BASE_DIR, "modules", resolved)
+    try:
+        if resolved and os.path.exists(module_path):
+            with open(module_path, "r", encoding="utf-8") as f:
+                module_data = json.load(f)
+            story_map = module_data.get("nodes", {})
+            resolved = module_data.get("module_name", resolved)
+            logger.info(f"[{setting_id}] Loaded campaign module '{resolved}' with {len(story_map)} nodes.")
+            return story_map, resolved
+    except Exception as e:
+        logger.error(f"Failed to load campaign map '{resolved}' for {setting_id}: {e}")
+
+    # Fallback default map
+    logger.warning(f"No valid module for setting '{setting_id}'. Using built-in fallback map.")
+    return {
+        "node_start": {
+            "node_id": "node_start",
+            "title": "The Chronos Diagnostic Chamber",
+            "description": "A pristine obsidian enclosure humming with low-frequency mesh telemetry seals.",
+            "exits": {"north": "node_corridor"},
+            "required_check": None
+        }
+    }, "builtin_fallback"
+
+
+def roster_dict_to_char(rc: dict) -> "CharacterSchema":
+    """Convert a roster DB dict to a CharacterSchema with all BESM fields populated.
+
+    Centralizes the JSON parsing for combat_techniques, skills, defects.
+    Canonical copy — the TUI (chronos.py) and web port (browser_chronos.py)
+    both import from here (was chronos._roster_dict_to_char).
+    """
+    from .models import CharacterSchema
+    char = CharacterSchema(
+        name=rc["name"],
+        gender=rc.get("gender", ""),
+        race=rc.get("race", ""),
+        stat_body=rc["stat_body"],
+        stat_mind=rc["stat_mind"],
+        stat_soul=rc["stat_soul"],
+        current_hp=rc.get("max_hp"),
+        current_ep=rc.get("max_ep")
+    )
+    char.points_budget = rc.get("points_budget", 75)
+    char.shock_value = rc.get("shock_value", char.max_hp // 5)
+    char.combat_techniques = json.loads(rc.get("combat_techniques", "[]"))
+    char.skills = json.loads(rc.get("skills", "[]"))
+    char.defects = json.loads(rc.get("defects", "[]"))
+    char.spellbook = json.loads(rc.get("spellbook", "[]"))
+    return char

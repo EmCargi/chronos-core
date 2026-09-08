@@ -46,5 +46,9 @@ from .economy import (
 )
 from .besm_catalog import BESM_CATALOG, SOURCES, rank_for_cp, seed_besm_catalog, besm_catalog_summary, besm_catalog_matches
 from .llm_bridge import LLMBridge
+from .guild_roster import (
+    load_campaign_module,
+    roster_dict_to_char,
+)
 from .config import ACTIVE_MODEL, THIN_MODEL, DEFAULT_RULES, DEFAULT_SETTING
 from .batch_ingest import run_auto_ingest

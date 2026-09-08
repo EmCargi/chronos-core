@@ -1,15 +1,17 @@
 ---
 project: digital-dm
-date: 2026-08-23
+date: 2026-09-07
 status: active
-test_count: 689 total (incl. +10 sxm1_pullover, +3 sxm1_ingest, +5 guild_ingest, +4 guild_region_ingest, +4 guild_org_ingest, +1 shell_wiring, +9 greeting_hub, +20 sxm1_economy) = 688 pass, 1 skip, all runnable (2026-08-23)
+test_count: 687 total (incl. +6 browser_smoke) = 687 pass, 1 skip, all runnable (2026-09-07)
 git: "local-only, engine code scoped (2026-08-14)"
 ---
 # Chronos Core — Handoff Document
 
-## Current State (2026-08-22)
+## Current State (2026-09-07)
 
-Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sandbox** for the terminal. It pairs a Python-enforced BESM 4e (Tri-Stat System) rules simulation with local-LLM narrative generation via Ollama. V3 shipped on 2026-08-07 with full mechanical enforcement: Combat Techniques, Skills, Defects, and Shock Value are persisted in the roster DB and injected into every LLM shell turn. Multiple settings are registered (Guild RPG, Shota x Monsters 2, My Hero Academia, plus training-yard / Tomoe packages). The thin client runs the TUI; the big rig runs Ollama inference. **669 tests (668 pass, 1 skip) — every engine path regression-checked, including the roster/ingest importer suites.** Git was initialized 2026-08-14, **scoped to engine code only** — see Operational Notes for exactly what's excluded and why. As of 2026-08-22 the **Guild RPG cast + regions + organizations are wired into the live roster** via `engine/guild_ingest.py`, `engine/guild_region_ingest.py`, and `engine/guild_org_ingest.py` (deterministic extractors + safe-ingest guard, registry sheets as sole source of truth) — 45 guild_rpg character rows (38 adventurers + 7 bosses) + 16 location rows (4 macro-regions with full Narrative Syntax) + 1 organization row (Aelthar Keldor guild, full NS), see Lineage / What Works.
+Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sandbox** with **two interfaces on one engine**: a terminal Rich TUI and a Streamlit browser dashboard. It pairs a Python-enforced BESM 4e (Tri-Stat System) rules simulation with local-LLM narrative generation via Ollama. V3 shipped on 2026-08-07 with full mechanical enforcement: Combat Techniques, Skills, Defects, and Shock Value are persisted in the roster DB and injected into every LLM shell turn. Multiple settings are registered (Guild RPG, Shota x Monsters 2, My Hero Academia, plus training-yard / Tomoe packages). The thin client runs the TUI *and* the web port; the big rig runs Ollama inference. **687 tests (687 pass, 1 skip) — every engine path regression-checked, including the roster/ingest importer suites + 6 headless web-port smoke tests.** Git was initialized 2026-08-14, **scoped to engine code only** — see Operational Notes for exactly what's excluded and why. As of 2026-08-22 the **Guild RPG cast + regions + organizations are wired into the live roster** via `engine/guild_ingest.py`, `engine/guild_region_ingest.py`, and `engine/guild_org_ingest.py` (deterministic extractors + safe-ingest guard, registry sheets as sole source of truth) — 45 guild_rpg character rows (38 adventurers + 7 bosses) + 16 location rows (4 macro-regions with full Narrative Syntax) + 1 organization row (Aelthar Keldor guild, full NS), see Lineage / What Works.
+
+**Web port shipped 2026-09-07** — `browser_chronos.py` is a Streamlit dashboard mirroring the proven `browser_aeiou.py` shape: sidebar disc/roster selectors (model, setting, active node, home org) + vitals HUD (`st.metric`/`st.progress` for HP/EP/Shock/ACV/DCV) + `st.chat_input` command handler dispatching AI Director turns through the same `LLMBridge` fallback chain. All `engine/` code is reused via `sys.path` bootstrap — zero rules-logic changes. Session state is isolated to `chronos_web_session.db` (CP-2), the full triangulation trail lives in `changelog/proposals/2026-09-07-chronos-core-streamlit-port.md` + `changelog/counterplans/2026-09-07-chronos-core-streamlit-port.md`, and the milestone journal is `dev-journal/2026-09-07-chronos-core-streamlit-port.md`. Launch with the `chronos-ui` zsh alias.
 
 ## Greeting Coverage (2026-08-23)
 
@@ -55,6 +57,7 @@ All **38 linked adventurer rows** have Character-Markdown greetings (First Messa
 | 2026-08-23 | 3d528f9 | `2026-08-23-chronos-core-guild-org-shell-wiring.md` | **Guild org Narrative Syntax wired into the live shell (the hub/off-duty location).** The home guild is now a first-class backdrop for the AI Director, not just a roster row. `chronos.py:build_vitals_with_full_loadout` merges the active org's NS (Structural Fault / Grand Guard / 3 Levers + leader/base/type/scale) into the shell vitals; `engine/prompts/besm_shell.md` gained a "Home Guild / Hub" section; a new non-destructive `org_name` column in `campaign_navigation` persists the active guild via `engine/state_manager.py:save_runtime_snapshot`/`load_runtime_navigation`; `/org <name>` + `/orgs` commands switch/list the active guild (mirroring `/char`/`/module`). Default hub = **Aelthar Keldor**. **Smoke-tested: compiled `besm_shell` carries the guild NS (Aelthar Keldor + Grand Guard), no leftover `{org_*}` placeholders.** 1 new test (`test_shell_injects_org_context`) → 660 total (659 pass / 1 skip). | |
 | 2026-08-23 | 583a2b3 | `2026-08-23-chronos-guild-hub-greetings.md` | **Hub-anchored greeting starts (domestic greetings open at the guild hall).** With the guild as a hub, character greetings double as campaign/player starting points. `engine/guild_roster.py` gained `classify_greeting()` (domestic vs field vs neutral, keyword-driven) and `format_greeting_list()` now tags each `/greetings` entry `[Hub]` (guild hall/tavern/library) or `[Quest]` (forest/quest/field). `chronos.py:build_greeting_start()` builds the opening node: domestic greetings anchor to `node_id=hub_guildhall`, `title="{org} Guildhall"` (so the hub is the literal starting location), field greetings stay on a generic quest node; `/startgreeting <n>` sets `active_node` to that node and persists it via `save_runtime_snapshot`. **Live-verified on Eira: 10 greetings tag 1/2/5/7/10 as `[Hub]`, 3/4/6/8/9 as `[Quest]`; a domestic greeting renders the AI Director opening at the Aelthar Keldor Guildhall.** 9 new tests (`tests/test_greeting_hub.py`) → 669 total (668 pass / 1 skip). | |
 | 2026-08-23 | `changelog/proposals/2026-08-21-chronos-core-sxm1-true-disk.md` | `2026-08-23-chronos-core-sxm1-economy-seed.md` | **SxM1 economy seeded in Gold (Phase 3 of the true-disc roadmap).** `engine/sxm1_economy_catalog.py` carries 63 BESM-grounded items (Gold model `50 × cost × category_mult`, validated vs the 4 confirmed peddler baselines — Potion 50G, Dodeka 200G, Fairy Revival 300G, Smoke Bomb 150G); `economy.py` gained a per-setting `currency` column so Guild RPG stays silver and SxM1 stays Gold; `seed_sxm1_economy()` + per-setting G/sp display; `sxm1_ingest.py` dedup-hardened (Lion Dancer / Lion dancer collision folds into the canonical row, idempotent re-runs). 20 new `test_economy.py` tests → 689 total (688 pass / 1 skip). | |
+| 2026-09-07 | `changelog/proposals/2026-09-07-chronos-core-streamlit-port.md` | `2026-09-07-chronos-core-streamlit-port.md` | **Streamlit web port shipped (browser_chronos.py) — the terminal TUI grows a browser dashboard.** Triangulated (proposal → counter-plan CP-1..CP-5 → synthesis). Reuses all `engine/` code via `sys.path` bootstrap; `set_active_db_path()` isolates the web session to `chronos_web_session.db` (CP-2); `load_campaign_module` + `roster_dict_to_char` moved to `engine/guild_roster.py` as the canonical copies (R5 — web port is `rich`-free); pure read-only math only under `@st.cache_data` (CP-1); LLM dispatch never cached + `strip_reasoning_tags()` verified (CP-4); `streamlit-aggraph` dropped for markdown-card nav (CP-5). Bootstrap sentinel (CP-3) survives Streamlit re-exec. 6 new `test_browser_smoke.py` headless AppTest tests → 687 total (687 pass / 1 skip). `chronos-ui` zsh alias added. | |
 
 ## Architecture Overview
 
@@ -64,9 +67,11 @@ chronos-core/
     ├── launcher.py ── Unified launcher (4 options: TUI / wizard / ingest / verify)
     │
     ├── chronos.py ── Rich TUI dashboard (command loop + HUD + vitals panel)
+    │
+    ├── browser_chronos.py ── Streamlit web port (sidebar selectors + vitals HUD + chat input)
     │       │
-    │       ├── engine/state_manager.py ── Runtime session state (vitals, nav, chronology)
-    │       ├── engine/guild_roster.py ── Canonical roster DB (settings, characters, power packs)
+    │       ├── engine/state_manager.py ── Runtime session state (vitals, nav, chronology) + set_active_db_path()
+    │       ├── engine/guild_roster.py ── Canonical roster DB (settings, characters, power packs) + load_campaign_module/roster_dict_to_char
     │       ├── engine/economy.py ── Items, wallets, inventory, silver price curves
     │       ├── engine/llm_bridge.py ── Ollama dispatch + BESM field formatters + prompt compilation
     │       ├── engine/models.py ── Pydantic v2 CharacterSchema + Tri-Stat derived vitals
@@ -75,23 +80,28 @@ chronos-core/
     │       └── engine/verify_dungeon.py ── Campaign module structural validator (5-room check)
     │
     ├── config/settings.json ── LLM model, Ollama URL, default rules + setting
-    ├── modules/ ── Campaign node maps (6 modules across 2 settings)
+    ├── modules/ ── Campaign node maps (8 modules across 3 settings)
     ├── data/
     │   ├── guild_rpg_roster.db ── SOURCE OF TRUTH (settings, characters, items, wallets, inventory)
-    │   ├── chronos_session.db ── Runtime state only (repopulated from roster on launch)
+    │   ├── chronos_session.db ── CLI runtime state only (repopulated from roster on launch)
+    │   ├── chronos_web_session.db ── Web port runtime state only (isolated from CLI — CP-2)
     │   └── checkpoints/ ── Pre-migration DB snapshots
     └── staging/ ── Character card import queue (raw/ → processed/ + failed/)
 ```
 
-**Two databases, one rule:**
+**Three databases, one rule:**
 - `guild_rpg_roster.db` — the canonical catalog (settings, characters [22 cols with BESM loadout], power packs, items, wallets, inventory). Survives sessions.
-- `chronos_session.db` — runtime state only (current vitals, active node, narrative history). Repopulated from the roster on launch.
+- `chronos_session.db` — CLI runtime state only (current vitals, active node, narrative history). Repopulated from the roster on launch.
+- `chronos_web_session.db` — web port runtime state only, isolated so the browser dashboard never contends with a running TUI session (CP-2).
 
 ## File Map
 
 | File | Purpose | Lines | Tests |
 |---|---|---|---|
 | `chronos.py` | Main Rich TUI dashboard — command loop, HUD, vitals panel, all `/` commands | ~768 | — |
+| `browser_chronos.py` | **Streamlit web port** — sidebar disc/roster selectors (model, setting, node, org) + vitals HUD (`st.metric`/`st.progress`) + `st.chat_input` command handler dispatching AI Director turns via `LLMBridge`; bootstrap sentinel (CP-3); `set_active_db_path(WEB_SESSION_DB_PATH)` isolates the web session (CP-2); pure read-only math under `@st.cache_data` (CP-1) | ~255 | — |
+| `requirements.txt` | Web port deps — `streamlit==1.61.1`, `plotly==6.9.0`, `pydantic==2.13.4` (no streamlit-aggraph — CP-5) | 5 | — |
+| `tests/test_browser_smoke.py` | Headless web-port smoke tests (6: boot w/o exceptions, title, sidebar widgets, vitals metrics, chat_input, node selector) via `streamlit.testing.v1.AppTest` — session DB redirected to tmp_path | ~90 | 6 |
 | `launcher.py` | Unified launcher (4 options: TUI / wizard / ingest / verify) | ~76 | — |
 | ~~`backfill_besm.py`~~ | ~~One-time BESM loadout backfill script~~ | **Archived 2026-08-14** → `dev/archive/chronos-core/backfill_besm.py` |
 | **`engine/`** | | | |
@@ -238,6 +248,7 @@ class CharacterSchema(BaseModel):
 
 ## What Works
 
+- **Streamlit web port (2026-09-07)** — `browser_chronos.py` gives Chronos a browser dashboard: sidebar disc/roster selectors (model, setting, active node, home org), vitals HUD (HP/EP/Shock/ACV/DCV via `st.metric`/`st.progress`), and an `st.chat_input` command handler that dispatches AI Director turns through the same `LLMBridge` fallback chain as the TUI. All `engine/` code reused unchanged via `sys.path` bootstrap; the web session DB is isolated to `chronos_web_session.db` via `set_active_db_path()` so the CLI is never disturbed. 6 headless AppTest smoke tests. Launch with the `chronos-ui` zsh alias. (Full triangulation: proposal + counter-plan CP-1..CP-5 + milestone journal, all dated 2026-09-07.)
 - Multi-setting roster (2 settings, 11 + 30 guild sheet characters = 41; plus 105 SxM1 rows)
 - BESM 4e rules enforcement (Combat Techniques, Skills, Defects, Shock Value)
 - Active Narrative Syntax injection (Structural Fault, Sixth Guard, Three Levers)
@@ -285,7 +296,7 @@ class CharacterSchema(BaseModel):
 
 ## What Doesn't Work Yet
 
-- **Test suite at 689 tests (688 pass, 1 skip, all runnable as of 2026-08-23)** — 26 suites. Both ingest/roster suites isolate the roster DB + staging dirs to tmp_path, so live `data/` is never touched by tests.
+- **Test suite at 687 tests (687 pass, 1 skip, all runnable as of 2026-09-07)** — 27 suites (incl. `test_browser_smoke.py`, 6 headless web-port tests). Both ingest/roster suites isolate the roster DB + staging dirs to tmp_path, so live `data/` is never touched by tests; the web-port smoke tests redirect the session DB to tmp_path too.
 - **Guild RPG roster holds 45 characters + 16 locations (2026-08-22)** — the live safe-ingest (`engine/guild_ingest.py`) inserted 30 registry-sheet adventurers, then `--update-existing` runs upgraded the cast to their sheet versions; Liora's later `liora-head-receptionist.md` sheet brought her in too, so all 38 adventurer rows are sheet-derived. The 7 boss sheets (`BESM Sheets/bosses/`) were then ingested the same way, so all 45 rows are now fully sheet-derived from the BESM Sheets (`adventurers/` + `bosses/`) — the sole canonical source. The extractor also now handles the boss `PREDICATE (... Strategic Levers):` lever block and vault sheets that serialize newlines as literal `\n` (the v2 Abyssal Behemoth sheet); the superseded `abyssal-behemoth-boss-sheet.md` is skipped in favor of `*-v2.md`. The four macro-regions (`BESM Sheets/regions/`) are now ingested too via `engine/guild_region_ingest.py`, carrying full Narrative Syntax parity with characters. **Orgs are now ingested as well (see below) — all four Guild RPG entity types (adventurers, bosses, regions, organizations) live in the roster.**
 - **Full-project git** — engine code has local-only git (2026-08-14), but confidential character data (`data/`, `staging/`, `modules/`) stays untracked by design. Full-project git deferred to the BESM 4e "universal" rewrite.
 - ~~**No Combat Maneuvers runtime**~~ — **Fully wired 2026-08-19** (engine shipped 08-18; `/maneuver` now exposes stances, called shots, two-weapon, strike-to-wound, touch, grappling, pin, multi-target via the TUI).
@@ -403,7 +414,11 @@ Chronos Core is the engine inside the **digital-dm-project**, which unifies:
 11. **Live-play the new commands** — confirm `/maneuver`/`/diceless`/`/effects` narrations read well in a real session (the LLM director carries the prose; the engine holds the numbers)
 12. ~~**Full Guild RPG cast pullover — extractor + dry run shipped, ingest pending**~~ → **COMPLETE (2026-08-22).** `engine/guild_pullover.py` + `guild_pullover_dryrun.py` parse the whole cast (registry format, 17 tests); `engine/guild_ingest.py` (5 tests) wires it into the live roster behind the safe-ingest guard. All 38 adventurer rows are now sheet-derived (Liora's `liora-head-receptionist.md` added last); `--update-existing` makes sheets canonical. Bosses/regions/orgs remain future work.
 13. **SxM1 "true disc" — Phases 1-3 done, Phases 4-6 pending** — proposal `changelog/proposals/2026-08-21-chronos-core-sxm1-true-disk.md` is the roadmap. **Phase 1 (2026-08-21):** `engine/sxm1_pullover.py` + `sxm1_pullover_dryrun.py` — 85 Bestiary monsters resolved / 18 data-sparse skipped / 0 DB writes. **Phase 2 (2026-08-21):** `engine/sxm1_ingest.py` executed (Option B add-only) — 97 → 105 rows, 0 mutations, 8 novel monsters. **Phase 2A (2026-08-23):** `--update-existing` re-run + Lion Dancer dedup + normalized-collision hardening (idempotent, 0 collisions). **Phase 3 (2026-08-23):** SxM1 economy seeded in Gold — `engine/sxm1_economy_catalog.py` (63 items) + `currency` column in `economy.py`; Gold model validated against the 4 confirmed Watt/Reo peddler prices. **Remaining:** (4) add strata/labyrinth modules from `Mechanics/03_Labyrinths.md`; (5) wire `sxm1-besm-folder/` lore vault into the LLM shell prompt space; (6) add `verify_setting_pack.py` 5-layer validator.
+14. **Web port polish — wire the `/command` palette into `browser_chronos.py`** — the V1 command handler dispatches any input to the AI Director; `/shop`, `/buy`, `/inventory`, `/diceless`, `/maneuver`, `/greetings`, `/provision` are engine-ready (all functions imported) but not yet distinct UI paths. Tabs or sidebar sub-panels per command.
+15. **Web port polish — `stream: True` + `st.write_stream()`** — deferred per synthesis Q1; big-rig turns block the browser thread ~15-30s behind `st.spinner`. Live token streaming would make long turns feel instant.
+16. **Web port polish — directional node navigation (CP-5 design)** — render node exits as `st.pills` / directional buttons mirroring the TUI's cardinal movement, instead of typing node IDs into the selectbox.
+17. **Web port polish — restore session on refresh** — the app re-boots from the roster on a fresh browser session; `load_runtime_navigation()` restore from `chronos_web_session.db` would resume the last node/character.
 
 ---
 
-*Handoff updated 2026-08-23. Chronos Core v3 — the BESM 4e rules engine. 689 tests, local-only engine-scoped git. The card→BESM compiler + staging bridge took the Shota roster 3 → 97 in one sweep — 94/94 ingested, zero fabricated lore-only rows. Every engine path now has regression coverage — even the importer and roster CRUD run against throwaway tmp DBs, combat resolves deterministically via diceless TCR, the full BESM maneuver arsenal enforces called shots/stances/wrestling, and every status ailment from poison vectors to mind control runs on enforced math. The whole arsenal reaches the TUI: /maneuver and /diceless on the prompt, and the two last tactical consumables bind real node-scoped scene effects through a round-budgeted ledger. As of 2026-08-20 the **Guild RPG cast pullover** has a deterministic two-format extractor + dry run (17 tests) — the full vault cast parses into roster payloads, ready to wire in fresh once the design pass reformats the remaining characters to registry-sheet quality. The LLM narrates; Python enforces. The Sixth Guard is not a suggestion.*
+*Handoff updated 2026-09-07. Chronos Core v3 — the BESM 4e rules engine, now with **two interfaces on one engine**: the Rich TUI and a Streamlit web port (`browser_chronos.py`, launch with `chronos-ui`). 687 tests, local-only engine-scoped git. The card→BESM compiler + staging bridge took the Shota roster 3 → 97 in one sweep — 94/94 ingested, zero fabricated lore-only rows. Every engine path now has regression coverage — even the importer and roster CRUD run against throwaway tmp DBs, combat resolves deterministically via diceless TCR, the full BESM maneuver arsenal enforces called shots/stances/wrestling, and every status ailment from poison vectors to mind control runs on enforced math. The whole arsenal reaches the TUI: /maneuver and /diceless on the prompt, and the two last tactical consumables bind real node-scoped scene effects through a round-budgeted ledger. As of 2026-08-20 the **Guild RPG cast pullover** has a deterministic two-format extractor + dry run (17 tests). The web port reuses the same engine unchanged, isolated to its own session DB, with 6 headless smoke tests sealing the browser path. The LLM narrates; Python enforces. The Sixth Guard is not a suggestion — and now it's also visible in a browser.*

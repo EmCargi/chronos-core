@@ -1,0 +1,6 @@
+# Chronos Core Web Port dependencies
+# Pinned for reproducibility; no streamlit-aggraph (CP-5/R6)
+
+streamlit==1.61.1
+plotly==6.9.0
+pydantic==2.13.4

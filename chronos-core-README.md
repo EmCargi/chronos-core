@@ -1,13 +1,22 @@
 # ⚡ Chronos Core ⚡ — Version 3
 
-Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sandbox** for the terminal. It pairs semantic, local-LLM narrative generation with a strict, Python-enforced **Big Eyes, Small Mouth Fourth Edition (Tri-Stat System)** rules simulation — with a **universal campaign catalog, canonical character roster, a setting-agnostic item economy, and a full BESM 4e rules enforcement layer** wired to live Ollama inference.
+Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sandbox** with **two interfaces on one engine**: a terminal Rich TUI and a browser dashboard. It pairs semantic, local-LLM narrative generation with a strict, Python-enforced **Big Eyes, Small Mouth Fourth Edition (Tri-Stat System)** rules simulation — with a **universal campaign catalog, canonical character roster, a setting-agnostic item economy, and a full BESM 4e rules enforcement layer** wired to live Ollama inference.
 
 > 🕹️ **This is the console.** Settings are **game discs** that plug into it — see
 > [`../SETTING_PACK_CONTRACT.md`](../SETTING_PACK_CONTRACT.md) for the five-layer disc contract.
 > The engine is setting-agnostic by design; each campaign registers via `config/settings.json`
 > (`DEFAULT_SETTINGS`) and ships its own module, roster, economy, and lore vault.
 
-Version 3 adds mechanical enforcement to the v2 foundation: the LLM shell prompt injects Combat Techniques, Skills, Defects, and Shock Value for Sixth Guard enforcement across all 7 roster characters. The thin client TUI dispatches narrative turns to the big rig's Ollama server, which returns mechanically grounded responses that respect each character's loadout.
+Version 3 adds mechanical enforcement to the v2 foundation: the LLM shell prompt injects Combat Techniques, Skills, Defects, and Shock Value for Sixth Guard enforcement across the whole roster. The thin client dispatches narrative turns to the big rig's Ollama server (fallback chain: big rig → thin client), which returns mechanically grounded responses that respect each character's loadout.
+
+### 🖥️ Two Interfaces, One Engine
+
+| Interface | Entry point | When to use |
+|---|---|---|
+| **Terminal TUI** | `chronos` or `launcher.py` | Full command palette, immersive HUD, on the thin client |
+| **Browser dashboard** | `chronos-ui` | Visual vitals HUD, sidebar disc/roster selectors, chat-style command input — openable anywhere on the LAN |
+
+Both interfaces share the same `engine/` code and the same roster DB — the web port adds a separate session DB (`chronos_web_session.db`) so the CLI's session state is never disturbed.
 
 ---
 
@@ -16,7 +25,9 @@ Version 3 adds mechanical enforcement to the v2 foundation: the LLM shell prompt
 ```text
 chronos-core/
 ├── chronos.py                     # Main Rich TUI dashboard (command loop + HUD)
+├── browser_chronos.py             # Streamlit web port (sidebar + vitals HUD + chat input)
 ├── launcher.py                    # Unified command launcher (TUI / wizard / ingest / verify)
+├── requirements.txt               # Web port deps (streamlit, plotly, pydantic)
 ├── (backfill_besm.py archived → dev/archive/chronos-core/)
 ├── ITEMS_ECONOMY_PLAN.md          # Design doc for the item & silver-economy layer
 ├── config/
@@ -25,7 +36,11 @@ chronos-core/
 │   ├── sandbox_75cp.json          # Guild RPG: starter sandbox (75 CP)
 │   ├── c_rank_trial.json          # Guild RPG: C-Rank trial (75 CP)
 │   ├── five_room_dungeon_v1.json  # Generic 5-room dungeon template (75 CP)
-│   └── forest_labyrinth_v1.json   # Shota x Monsters: Labyrinth I (50 CP)
+│   ├── forest_labyrinth_v1.json   # Shota x Monsters: Labyrinth I (50 CP)
+│   ├── guild_training_yard_v1.json  # Guild RPG: training yard
+│   ├── zarlen_training_grounds_v1.json  # Guild RPG: training grounds (Zarlen boss)
+│   ├── tomoe_volcano_package_v1.json   # Guild RPG: Tomoe volcano campaign
+│   └── ua_entrance_exam.json      # My Hero Academia: U.A. Entrance Exam
 ├── staging/
 │   ├── raw/                       # Incoming character card .json queue
 │   ├── processed/                 # Successfully ingested character cards
@@ -45,14 +60,16 @@ chronos-core/
 │       ├── besm_shell.md          # LLM shell prompt (8 sections, 8 directives)
 │       └── besm_loot.md           # Loot synthesis prompt
 └── data/
-    ├── guild_rpg_roster.db        # SOURCE OF TRUTH: 22 cols, 7 characters + economy
-    ├── chronos_session.db         # Runtime session state only
+    ├── guild_rpg_roster.db        # SOURCE OF TRUTH: settings, 45 characters, items, economy
+    ├── chronos_session.db         # CLI runtime session state only
+    ├── chronos_web_session.db     # Web port runtime session state (isolated from CLI)
     └── checkpoints/               # Automatic pre-migration DB snapshots
 ```
 
-**Two databases, one rule:**
+**Three databases, one rule:**
 - `guild_rpg_roster.db` — the **canonical catalog** (settings, characters [22 cols with BESM loadout], power packs, items, wallets, inventory). Survives sessions.
-- `chronos_session.db` — **runtime state only** (current vitals, active node, narrative history). Repopulated from the roster on launch.
+- `chronos_session.db` — **CLI runtime state only** (current vitals, active node, narrative history). Repopulated from the roster on launch.
+- `chronos_web_session.db` — **web port runtime state only**, kept separate so the browser dashboard never contends with a running TUI session (CP-2).
 
 ---
 
@@ -62,8 +79,9 @@ The core is setting-agnostic. Everything campaign-specific is scoped by a `setti
 
 | Setting | Description | Default module | Label | Roster |
 |---|---|---|---|---|
-| `guild_rpg` | Aelthar Keldor: the Guild RPG campaign system | `sandbox_75cp.json` | Guild Rank | 7 adventurers (Eira, Rosivelle, Sylvara, Aglae, Tomoe, Liora, Nieven) |
-| `shota_x_monsters` | Shota x Monsters 2 BESM 4e expansion | `forest_labyrinth_v1.json` | Monster Tier | 3 presets (Jin, Mayor Ast, Sage Ios) |
+| `guild_rpg` | Aelthar Keldor: the Guild RPG campaign system | `sandbox_75cp.json` | Guild Rank | 45 rows (38 adventurers + 7 bosses), 16 locations, 1 org |
+| `shota_x_monsters` | Shota x Monsters 2 BESM 4e expansion | `forest_labyrinth_v1.json` | Monster Tier | 105 rows (94 card-derived + 3 presets + 8 curated Bestiary) |
+| `my_hero_academia` | U.A. High Entrance Exam module | `ua_entrance_exam.json` | Hero Rank | Registered (Disc 3) |
 
 New settings register via `register_setting()` — no code changes required beyond seeding a roster.
 
@@ -108,7 +126,7 @@ injected into the LLM shell prompt on every `/examine` and `/loot` turn:
 | `defects` | Mechanical vulnerabilities (Phobia, Lazy, Vulnerability, etc.) | Triggered immediately on condition — never softened or narrated around |
 | `shock_value` | Modified stun threshold (base HP÷5 + Hardboiled, capped at ½ HP) | Heavy hits force Soul checks or stun |
 
-**All 7 roster characters** have complete loadouts derived from their canonical profiles.
+**Every roster character** has a complete loadout derived from its canonical profile.
 The LLM enforces these in real time: Rosivelle freezes vs. mice (Phobia), Tomoe's rage
 vs. Zarkhoth (Vengeance Singularity), Liora's collapse in darkness (Perimeter Breach).
 
@@ -158,14 +176,22 @@ Canonical AK profiles live as structured markdown in the Aethor Kaeldor characte
 
 ## 🎮 How to Run
 
+### Browser dashboard (web port)
 ```bash
-python3 launcher.py
+chronos-ui                     # zsh alias — launches Streamlit, opens the browser
+# or directly:
+/home/megane/dev/venv/bin/streamlit run browser_chronos.py
 ```
+The web port boots at `http://localhost:8502` (openable on the LAN). Sidebar picks
+the setting / active node / home org / model; the vitals HUD shows HP / EP / Shock /
+ACV / DCV; the chat input dispatches AI Director turns through the same Ollama
+fallback chain as the TUI. Session state is isolated to `chronos_web_session.db`.
 
-Or launch the TUI directly (Python 3.10+; install deps with the bundled venv):
-
+### Terminal TUI
 ```bash
-venv/bin/python chronos.py
+python3 launcher.py            # launcher menu (TUI / wizard / ingest / verify)
+# or directly:
+venv/bin/python chronos.py     # Rich TUI with full command palette
 ```
 
 ### Command Palette
@@ -201,16 +227,22 @@ venv/bin/python chronos.py
 
 ## 🤖 LLM Backend
 
-Chronos Core dispatches narrative turns to an **Ollama** instance (local or big rig). Configure in `config/settings.json`:
+Chronos Core dispatches narrative turns to an **Ollama** instance via the canonical
+fallback chain (`dev/core/ollama.py`) — **big rig first, thin client last resort**.
+Configure in `config/settings.json`:
 
 ```json
 {
-  "ACTIVE_MODEL": "gemma4-v2-Q6_K.gguf:latest",
-  "OLLAMA_URL": "http://100.73.250.56:11434/api/generate",
+  "ACTIVE_MODEL": "gemma4-agentic-16k:latest",
+  "THIN_MODEL": "deepseek-r1:7b",
   "DEFAULT_RULES": "besm_shell",
   "DEFAULT_SETTING": "guild_rpg"
 }
 ```
+
+`OLLAMA_URL` is not configured directly — the fallback chain routes to the big rig
+(`100.73.250.56:11434`) by default and hops to the thin client's local Ollama on
+connectivity/server errors. The big rig itself is never touched by tooling.
 
 All rules math (checks, damage, item pricing) is computed locally in Python; the LLM only supplies prose and loot-flavor, gated through the output validator.
 
