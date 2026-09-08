@@ -12,6 +12,11 @@ ROSTER_PATH = os.path.join(DATA_DIR, "guild_rpg_roster.db")
 SESSION_PATH = os.path.join(DATA_DIR, "chronos_session.db")
 SESSION_SESSION_ID = "chronos_interactive_session"
 
+# CP-11 Option A: economy writes target the SHARED canonical roster DB by default
+# (both TUI and web mutate the same game state). Tests redirect via
+# set_active_roster_path() to a throwaway file so the live roster is never touched.
+ACTIVE_ROSTER_PATH = ROSTER_PATH
+
 # Quest-economy silver brackets keyed by rank tier.
 RANK_BRACKETS = {
     "D": (3, 10),
@@ -152,10 +157,23 @@ SEED_CATALOG = [
 # SxM1 (shota_x_monsters) economy seed: all 63 items with BESM-grounded Gold prices.
 from .sxm1_economy_catalog import SEED_CATALOG_SXM1
 
+def set_active_roster_path(path: str) -> None:
+    """Redirect all subsequent economy DB access to `path` (tests / isolated web).
+
+    Reassigns the module-level ACTIVE_ROSTER_PATH global so every function that
+    opens the economy DB (get_economy_connection, ...) targets the new file.
+    Production default is the SHARED canonical roster DB (CP-11 Option A);
+    tests call this with a throwaway path to never touch the live roster.
+    """
+    global ACTIVE_ROSTER_PATH
+    ACTIVE_ROSTER_PATH = path
+    logger.info(f"Active economy/roster DB redirected to: {path}")
+
+
 def get_economy_connection() -> sqlite3.Connection:
     """Safely connects to the canonical roster DB (source of truth for economy)."""
-    os.makedirs(DATA_DIR, exist_ok=True)
-    conn = sqlite3.connect(ROSTER_PATH)
+    os.makedirs(os.path.dirname(ACTIVE_ROSTER_PATH), exist_ok=True)
+    conn = sqlite3.connect(ACTIVE_ROSTER_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 

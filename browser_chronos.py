@@ -291,6 +291,93 @@ if player_input:
             nh.append(f"[dim]{line}[/dim]")
         handled = True
 
+    # ── Phase C: economy writes — shared canonical roster DB (CP-11 Option A) ──
+    elif cmd_lower.startswith("/provision"):
+        parts = cmd.split()
+        pcmd = parts[1].lower() if len(parts) > 1 else ""
+        if pcmd in ("usage", "help"):
+            nh.append("[bold yellow]System:[/bold yellow] /provision usage:")
+            nh.append("[dim]  /provision [info] [filters] — seed the BESM canon into this setting's shop[/dim]")
+            nh.append("[dim]  filters: eras=archaic,modern | categories=melee | types=weapon | cap=800[/dim]")
+            nh.append("[dim]  bare token = era filter (e.g. /provision archaic); info = preview only[/dim]")
+        else:
+            eras = categories = types = None
+            cap = None
+            dry_run = False
+            if pcmd == "info":
+                dry_run = True
+                parts = [parts[0]] + parts[2:]
+            for tok in parts[1:]:
+                tok = tok.lower()
+                if "=" in tok:
+                    key, val = tok.split("=", 1)
+                    vals = [v.strip() for v in val.split(",") if v.strip()]
+                    if key in ("era", "eras"):
+                        eras = vals
+                    elif key in ("cat", "category", "categories"):
+                        categories = vals
+                    elif key in ("type", "types", "item_type", "item_types"):
+                        types = vals
+                    elif key in ("cap", "price_cap", "max", "maxsp"):
+                        try:
+                            cap = int(val)
+                        except ValueError:
+                            nh.append("[bold yellow]System:[/bold yellow] cap= needs an integer (e.g. cap=800).")
+                            cap = None
+                    else:
+                        nh.append(f"[bold yellow]System:[/bold yellow] Unknown filter '{key}' — try eras=, categories=, types=, cap=.")
+                else:
+                    if tok not in ("info", "usage", "help"):
+                        eras = [tok]
+            count, spread = besm_catalog_matches(eras, categories, types, cap)
+            spread_text = ", ".join(f"{k} {v}" for k, v in sorted(spread.items())) if spread else "no match"
+            if dry_run:
+                nh.append(f"[bold yellow]System:[/bold yellow] Preview: would seed [bold white]{count}[/bold white] BESM items into [{setting_id}] ({spread_text}).")
+                nh.append("[dim]Re-run without 'info' to commit.[/dim]")
+            else:
+                if count == 0:
+                    nh.append("[bold red]System:[/bold red] No BESM items match those filters.")
+                else:
+                    seeded = seed_besm_catalog(setting_id, eras, categories, types, cap)
+                    nh.append(f"[bold green]Provisioned:[/bold green] seeded [bold white]{seeded}[/bold white] BESM items into [{setting_id}] ({spread_text}).")
+                    nh.append("[dim]Run /shop to see the new stock.[/dim]")
+        handled = True
+
+    elif cmd_lower.startswith("/buy"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /buy <item_id> [qty] (run /shop to list).")
+        else:
+            item_id = parts[1].lower()
+            qty = 1
+            if len(parts) > 2:
+                try:
+                    qty = max(1, int(parts[2]))
+                except ValueError:
+                    nh.append("[bold yellow]System:[/bold yellow] Quantity must be a positive integer.")
+                    qty = 0
+            if qty > 0:
+                ok, msg = buy_item(setting_id, char_name, item_id, qty)
+                if ok:
+                    nh.append(f"[bold green]Purchase:[/bold green] {msg}")
+                else:
+                    nh.append(f"[bold red]Purchase Failed:[/bold red] {msg}")
+        handled = True
+
+    elif cmd_lower.startswith("/grant"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /grant <silver>.")
+        else:
+            try:
+                amount = int(parts[1])
+            except ValueError:
+                nh.append("[bold yellow]System:[/bold yellow] Amount must be an integer.")
+            else:
+                balance = grant_silver(setting_id, char_name, amount)
+                nh.append(f"[bold green]System:[/bold green] Granted {amount} sp to {char_name}. New balance: [bold white]{balance} sp[/bold white].")
+        handled = True
+
     elif cmd_lower.startswith("/wallet"):
         parts = cmd.split()
         name = " ".join(parts[1:]) if len(parts) > 1 else char_name
@@ -303,6 +390,35 @@ if player_input:
         nh.append(f"[bold yellow]System:[/bold yellow] [{setting_id}] {char_name} inventory:")
         for line in inv_text.splitlines():
             nh.append(f"[dim]{line}[/dim]")
+        handled = True
+
+    elif cmd_lower.startswith("/use"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /use <item_id> (run /inventory to list).")
+        else:
+            item_id = parts[1].lower()
+            ok, msg = use_item(setting_id, char_name, item_id, node_id=active_node.node_id)
+            if ok:
+                nh.append(f"[bold green]Item Used:[/bold green] {msg}")
+                # Refresh vitals display after healing/EP effects
+                char.current_hp = char.current_hp if char.current_hp is not None else char.max_hp
+                char.current_ep = char.current_ep if char.current_ep is not None else char.max_ep
+                try:
+                    with get_db_connection() as conn:
+                        row = conn.execute(
+                            "SELECT current_hp, current_ep FROM character_vitals WHERE session_id = ? AND name = ?",
+                            (WEB_SESSION_ID, char_name)
+                        ).fetchone()
+                except Exception:
+                    row = None
+                if row:
+                    char.current_hp = row[0]
+                    char.current_ep = row[1]
+                save_runtime_snapshot(WEB_SESSION_ID, char, active_node.node_id, setting_id, active_module_name, st.session_state.active_org)
+                st.session_state.char = char
+            else:
+                nh.append(f"[bold red]Use Failed:[/bold red] {msg}")
         handled = True
 
     elif cmd_lower == "/loadout":

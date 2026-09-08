@@ -29,11 +29,20 @@ BROWSER_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 def app(tmp_path):
     """Boot the Streamlit app headlessly with the session DB redirected to tmp."""
     from engine import state_manager as sm
+    from engine import economy as ec
+    _orig_roster = ec.ACTIVE_ROSTER_PATH
     # Isolate the web session DB — never touch live data/ (existing suite convention)
     sm.set_active_db_path(str(tmp_path / "chronos_web_session.db"))
+    # CP-11 Option A: redirect the SHARED economy/roster DB to a throwaway too,
+    # so write commands (/grant /buy /use /provision) never pollute the live roster.
+    ec.set_active_roster_path(str(tmp_path / "chronos_economy.db"))
+    ec.init_economy_db()
     at = AppTest.from_file(BROWSER_FILE, default_timeout=30)
     at.run()
-    return at
+    yield at
+    # Restore the canonical economy/roster path so the redirect never leaks
+    # into sibling test files (test_economy, test_besm_catalog, ...).
+    ec.set_active_roster_path(_orig_roster)
 
 
 def test_boots_without_exceptions(app):
@@ -276,3 +285,66 @@ def test_startgreeting_non_numeric(app):
     assert not app.exception, [e.value for e in app.exception]
     joined = "\n".join(_all_markdown(app))
     assert "Usage: /startgreeting" in joined
+
+
+# ── Phase C: economy writes — shared canonical roster DB (CP-11 Option A) ───
+
+def test_grant_updates_wallet(app):
+    """/grant writes to the shared economy DB; /wallet reflects it (CP-1 rerun)."""
+    _send_command(app, "/grant 50")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Granted 50 sp" in joined
+    assert "New balance: 50 sp" in joined
+    _send_command(app, "/wallet")
+    joined = "\n".join(_all_markdown(app))
+    assert "wallet: 50 sp" in joined
+
+
+def test_buy_unknown_item_graceful(app):
+    """/buy <unknown> → purchase-failed feed message, never a traceback (CP-6H)."""
+    _send_command(app, "/buy not_a_real_item")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Purchase Failed" in joined
+
+
+def test_buy_bad_qty_usage(app):
+    """/buy <item> abc → usage warning, no traceback (CP-5)."""
+    _send_command(app, "/buy potion abc")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Quantity must be a positive integer" in joined
+
+
+def test_buy_use_inventory_loop(app):
+    """/grant → /buy → /use → /inventory: full economy loop on the shared DB."""
+    _send_command(app, "/grant 100")
+    _send_command(app, "/buy basic_healing_salve 2")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Bought 2x Basic Healing Salve" in joined
+    _send_command(app, "/use basic_healing_salve")
+    joined = "\n".join(_all_markdown(app))
+    assert "Item Used" in joined
+    _send_command(app, "/inventory")
+    joined = "\n".join(_all_markdown(app))
+    assert "Basic Healing Salve" in joined
+
+
+def test_provision_preview_no_write(app):
+    """/provision info (dry run) previews matches without committing."""
+    _send_command(app, "/provision info archaic")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Preview: would seed" in joined
+    assert "Re-run without 'info' to commit" in joined
+
+
+def test_provision_usage(app):
+    """/provision usage shows the filter help."""
+    _send_command(app, "/provision usage")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "/provision usage" in joined
+    assert "cap=800" in joined

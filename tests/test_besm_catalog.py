@@ -115,7 +115,7 @@ class BESMCatalogDBTestCase(unittest.TestCase):
         self.tmp_roster.close()
         self.tmp_session.close()
         self._patchers = [
-            patch.object(economy, "ROSTER_PATH", self.tmp_roster.name),
+            patch.object(economy, "ACTIVE_ROSTER_PATH", self.tmp_roster.name),
             patch.object(economy, "SESSION_PATH", self.tmp_session.name),
         ]
         for p in self._patchers:
