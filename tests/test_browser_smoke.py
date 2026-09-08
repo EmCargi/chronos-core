@@ -348,3 +348,98 @@ def test_provision_usage(app):
     joined = "\n".join(_all_markdown(app))
     assert "/provision usage" in joined
     assert "cap=800" in joined
+
+
+# ── State-switching commands (/setting /module /char /org /orgs) ─────────────
+
+def test_setting_switches_and_radio_does_not_crash(app):
+    """/setting to a NON-radio disc (CP-12) must not crash the Setting radio."""
+    _send_command(app, "/setting guild_training_yard")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Switched to setting 'guild_training_yard'" in joined
+    # radio options now derive from list_settings() — all 5 discs, no ValueError
+    sel = next((w for w in app.sidebar if getattr(w, "label", "") == "Setting"), None)
+    assert sel is not None
+    assert "guild_training_yard" in sel.options
+    assert len(sel.options) == 5
+
+
+def test_setting_unknown(app):
+    """/setting <unknown> → error feed message, no traceback (CP-5)."""
+    _send_command(app, "/setting not_a_setting")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Unknown setting" in joined
+
+
+def test_module_loads_and_resets_node(app):
+    """/module swaps the story map and resets the active node to map[0]."""
+    _send_command(app, "/module sandbox_75cp.json")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Loaded module" in joined
+
+
+def test_module_empty_warns_and_aborts(app, tmp_path):
+    """/module on a zero-node module → warn-and-abort, player stays anchored (CP-13)."""
+    import json
+    empty_module = tmp_path / "modules"
+    empty_module.mkdir()
+    (empty_module / "empty_test.json").write_text(json.dumps({"module_name": "empty_test", "nodes": {}}))
+    from engine import guild_roster as gr
+    _orig_base = gr.BASE_DIR
+    gr.BASE_DIR = str(tmp_path)
+    try:
+        _send_command(app, "/module empty_test.json")
+    finally:
+        gr.BASE_DIR = _orig_base
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Module contains no nodes" in joined
+    # node unchanged — no ghost state
+    sel = next((w for w in app.sidebar if getattr(w, "label", "") == "Active Node"), None)
+    assert sel is not None
+    assert sel.value in sel.options
+
+
+def test_char_switches(app):
+    """/char rehydrates the active character (HUD vitals follow)."""
+    _send_command(app, "/char Eira")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Active character set to Eira" in joined
+    # HUD reflects Eira
+    assert any("Character: Eira" in m.value for m in app.markdown)
+
+
+def test_char_unknown(app):
+    """/char <unknown> → error feed message, no traceback."""
+    _send_command(app, "/char NotARealCharacter")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "No character" in joined
+
+
+def test_org_switches(app):
+    """/org sets the active guild."""
+    _send_command(app, "/org Aelthar Keldor")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Active home guild set to Aelthar Keldor" in joined
+
+
+def test_org_unknown(app):
+    """/org <unknown> → error feed message, no traceback."""
+    _send_command(app, "/org NotARealOrg")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "No organization" in joined
+
+
+def test_orgs_lists(app):
+    """/orgs lists organizations — must not be shadowed by /org (TUI shadow bug fixed)."""
+    _send_command(app, "/orgs")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Organizations in" in joined

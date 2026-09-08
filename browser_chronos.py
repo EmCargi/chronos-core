@@ -54,6 +54,7 @@ from engine.guild_roster import (
     get_roster_connection, get_character_loadout, format_loadout_summary,
     get_character_greetings, format_greeting_list,
     location_summary, get_location, threat_summary, get_threat,
+    get_organization, organization_summary,
     build_vitals_with_full_loadout, build_greeting_start,
 )
 from engine.state_manager import (
@@ -139,11 +140,15 @@ st.sidebar.header("Chronos Core Configuration")
 ACTIVE_MODEL = st.sidebar.text_input("Model", value=ACTIVE_MODEL or "gemma4-agentic-16k:latest")
 THIN_MODEL = st.sidebar.text_input("Thin Model", value=THIN_MODEL or "deepseek-r1:7b")
 
-# Setting selector
+# Setting selector — CP-12: options derive from list_settings() (all registered
+# discs), never a hardcoded list, so /setting to any disc can't crash the radio.
+_setting_options = [s["setting_id"] for s in list_settings()]
+if st.session_state.setting_id not in _setting_options:
+    st.session_state.setting_id = _setting_options[0]
 setting_id = st.sidebar.radio(
     "Setting",
-    options=["guild_rpg", "shota_x_monsters", "my_hero_academia"],
-    index=["guild_rpg", "shota_x_monsters", "my_hero_academia"].index(st.session_state.setting_id),
+    options=_setting_options,
+    index=_setting_options.index(st.session_state.setting_id),
     help="Disc-based campaign setting. Guild RPG = Aelthar Keldor, SxM = labyrinth taming, MHA = U.A. High",
 )
 st.session_state.setting_id = setting_id
@@ -170,7 +175,7 @@ st.session_state.active_node_id = st.sidebar.selectbox(
 )
 active_node_id = st.session_state.active_node_id
 
-active_org = st.sidebar.text_input("Home Guild / Org", value=st.session_state.active_org)
+active_org = st.sidebar.text_input("Home Guild / Org", value=st.session_state.get("active_org", ""))
 st.session_state.active_org = active_org
 
 # ── main: vitals HUD + narrative chat ────────────────────────────────────
@@ -280,6 +285,84 @@ if player_input:
         for s in list_settings():
             marker = " >" if s["setting_id"] == setting_id else "  "
             nh.append(f"[dim]{marker} [{s['setting_id']}] {s['name']} (module: {s['default_module']})[/dim]")
+        handled = True
+
+    # ── State-switching commands (session-state writes → feed → rerun) ──────
+    elif cmd_lower.startswith("/setting"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /setting <setting_id> (try /settings to list).")
+        else:
+            target = parts[1].lower()
+            if not get_setting(target):
+                nh.append(f"[bold red]System:[/bold red] Unknown setting '{target}'. Run /settings to see registered settings.")
+            else:
+                st.session_state.setting_id = target
+                new_map, new_module = load_campaign_module(target, None)
+                st.session_state.story_map = new_map
+                st.session_state.module_name = new_module
+                st.session_state.last_setting_id = target
+                st.session_state.active_node_id = list(new_map.keys())[0]
+                roster_chars = list_characters(setting_id=target)
+                if roster_chars:
+                    st.session_state.char = roster_dict_to_char(roster_chars[0])
+                save_runtime_snapshot(WEB_SESSION_ID, st.session_state.char, st.session_state.active_node_id, target, new_module, st.session_state.active_org)
+                nh.append(f"[bold green]System:[/bold green] Switched to setting '{target}' (module: {new_module}). Active character: {st.session_state.char.name}.")
+        handled = True
+
+    elif cmd_lower.startswith("/module"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /module <module_filename.json> (e.g. forest_labyrinth_v1.json).")
+        else:
+            target = parts[1]
+            new_map, new_module = load_campaign_module(setting_id, target)
+            if not new_map:
+                # CP-13 synthesis: warn-and-abort — a zero-node module is broken;
+                # never synthesize ghost state. Player stays anchored in the current map.
+                nh.append("[bold red]System:[/bold red] Error: Module contains no nodes. Swap aborted.")
+            else:
+                st.session_state.story_map = new_map
+                st.session_state.module_name = new_module
+                st.session_state.active_node_id = list(new_map.keys())[0]
+                save_runtime_snapshot(WEB_SESSION_ID, char, st.session_state.active_node_id, setting_id, new_module, st.session_state.active_org)
+                nh.append(f"[bold green]System:[/bold green] Loaded module '{new_module}'.")
+        handled = True
+
+    elif cmd_lower.startswith("/char"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /char <name> (run /roster to list).")
+        else:
+            target = " ".join(parts[1:])
+            roster_char = get_character(setting_id, target)
+            if not roster_char:
+                nh.append(f"[bold red]System:[/bold red] No character '{target}' in setting '{setting_id}'. Run /roster to list.")
+            else:
+                st.session_state.char = roster_dict_to_char(roster_char)
+                save_runtime_snapshot(WEB_SESSION_ID, st.session_state.char, active_node.node_id, setting_id, active_module_name, st.session_state.active_org)
+                nh.append(f"[bold green]System:[/bold green] Active character set to {st.session_state.char.name} (SV={st.session_state.char.shock_value}).")
+        handled = True
+
+    elif cmd_lower == "/orgs":
+        nh.append(f"[bold yellow]System:[/bold yellow] Organizations in '{setting_id}':")
+        for line in organization_summary(setting_id).splitlines():
+            nh.append(f"[dim]{line}[/dim]")
+        handled = True
+
+    elif cmd_lower.startswith("/org"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /org <name> (run /orgs to list).")
+        else:
+            target = " ".join(parts[1:])
+            roster_org = get_organization(setting_id, target)
+            if not roster_org:
+                nh.append(f"[bold red]System:[/bold red] No organization '{target}' in setting '{setting_id}'. Run /orgs to list.")
+            else:
+                st.session_state.active_org = roster_org["name"]
+                save_runtime_snapshot(WEB_SESSION_ID, char, active_node.node_id, setting_id, active_module_name, roster_org["name"])
+                nh.append(f"[bold green]System:[/bold green] Active home guild set to {roster_org['name']} ({roster_org['organization_type']}).")
         handled = True
 
     elif cmd_lower.startswith("/shop"):
