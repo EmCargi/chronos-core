@@ -196,7 +196,7 @@ def test_greeting_list_tags_survive_stripper():
 _PHASE_B_CASES = [
     ("/diceless 17", "Total Combat Roll"),
     ("/diceless hedge 10 mind", "Auto-7"),
-    ("/shock 30", "SHOCKED"),
+    ("/shock 30", "UNCONSCIOUS"),
     ("/fall 5", "damage"),
     ("/range 20 5", "Minor Obstacle"),
     ("/size 3", "Size 3"),

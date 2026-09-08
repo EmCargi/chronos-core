@@ -855,6 +855,60 @@ if player_input:
             nh.append("[bold yellow]System:[/bold yellow] There is no active obstacle to attack in this area.")
         handled = True
 
+    elif cmd_lower == "/loot":
+        nh.append("[bold blue]Player:[/bold blue] Searching coordinates for equipment artifacts...")
+        vitals = {
+            "name": char.name,
+            "stat_body": char.stat_body,
+            "stat_mind": char.stat_mind,
+            "stat_soul": char.stat_soul,
+            "combat_techniques": char.combat_techniques,
+            "skills": char.skills,
+            "defects": char.defects,
+            "shock_value": char.shock_value,
+            "max_hp": char.max_hp,
+            "max_ep": char.max_ep,
+            "active_node": {"title": active_node.title, "node_id": active_node.node_id},
+            "description": active_node.description or "",
+        }
+        try:
+            from engine.llm_bridge import LLMBridge
+            bridge = LLMBridge()
+            compiled_prompt = bridge.compile_system_frame("besm_loot", vitals, {"title": active_node.title, "node_id": active_node.node_id})
+            with st.spinner("AI Director is composing..."):
+                response_dict = bridge.dispatch_ollama_turn(
+                    model_name=ACTIVE_MODEL,
+                    complete_context=compiled_prompt,
+                    user_input="Player performs search action inside local stasis grid.",
+                )
+            if response_dict.get("success"):
+                prose, item_data = bridge.inspect_llm_output(response_dict["response"])
+                if item_data and "item_name" in item_data:
+                    item_id = add_loot_to_inventory(WEB_SESSION_ID, item_data)
+                    nh.append(f"[bold yellow]AI Director:[/bold yellow] {prose}")
+                    nh.append(f"[bold green]Item Acquired:[/bold green] [bold white]{item_data['item_name']}[/bold white] (ID: {item_id}) Added to Inventory Ledger.")
+                else:
+                    fallback_item = {
+                        "item_name": "Chronos Nanite Capacitor",
+                        "item_type": "Accessory",
+                        "attribute_granted": "stat_soul",
+                        "raw_modifiers": "+1",
+                    }
+                    item_id = add_loot_to_inventory(WEB_SESSION_ID, fallback_item)
+                    nh.append("[bold yellow]AI Director (Parser Fallback):[/bold yellow] You found a Chronos Nanite Capacitor (+1 SOUL)!")
+            else:
+                fallback_item = {
+                    "item_name": "Rust Vibroblade",
+                    "item_type": "Weapon",
+                    "attribute_granted": "stat_body",
+                    "raw_modifiers": "+1",
+                }
+                item_id = add_loot_to_inventory(WEB_SESSION_ID, fallback_item)
+                nh.append("[bold yellow]AI Director (Offline Fallback):[/bold yellow] You discover a discarded Rust Vibroblade (+1 BODY)!")
+        except Exception:
+            nh.append("[bold red]System Error:[/bold red] Loot extraction failed.")
+        handled = True
+
     # ── Director fallback: free text + examine → LLM (unchanged) ──────────
     elif cmd_lower == "examine" or not cmd_lower.startswith("/"):
         # Build vitals for LLM bridge
