@@ -54,6 +54,7 @@ from engine.guild_roster import (
     get_roster_connection, get_character_loadout, format_loadout_summary,
     get_character_greetings, format_greeting_list,
     location_summary, get_location, threat_summary, get_threat,
+    build_vitals_with_full_loadout, build_greeting_start,
 )
 from engine.state_manager import (
     get_db_connection, init_db as init_state_db, set_active_db_path,
@@ -323,6 +324,59 @@ if player_input:
             nh.append("[dim]Use /startgreeting <number> to begin a session. [Hub] greetings open at the guild hall.[/dim]")
         else:
             nh.append("[bold yellow]System:[/bold yellow] No greetings available for this character (source file missing).")
+        handled = True
+
+    elif cmd_lower.startswith("/startgreeting"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /startgreeting <number> (run /greetings to list).")
+        else:
+            try:
+                idx = int(parts[1]) - 1
+            except ValueError:
+                nh.append("[bold yellow]System:[/bold yellow] Usage: /startgreeting <number>.")
+            else:
+                greetings = get_character_greetings(setting_id, char_name)
+                if not greetings:
+                    nh.append("[bold red]System:[/bold red] No greetings available.")
+                elif idx < 0 or idx >= len(greetings):
+                    nh.append(f"[bold red]System:[/bold red] Greeting {idx+1} not found. Use /greetings to list.")
+                else:
+                    g = greetings[idx]
+                    # CP-4: commit the node FIRST (local, synchronous, idempotent)
+                    kind, start_node, greeting_text = build_greeting_start(char, g, st.session_state.active_org, idx)
+                    # CP-10/CP-10H: inject the synthetic node into the active disc's map so the
+                    # sidebar node_options re-syncs; evicted automatically on setting swap (map re-derives).
+                    st.session_state.story_map[start_node.node_id] = start_node.model_dump()
+                    st.session_state.active_node_id = start_node.node_id
+                    if kind == "domestic":
+                        nh.append(f"[bold green]Session Started at the Hub:[/bold green] {char_name} — {start_node.title} (Greeting {idx+1})")
+                    else:
+                        nh.append(f"[bold green]Session Started:[/bold green] {char_name} — Greeting {idx+1}")
+                    nh.append(f"[dim]{g['scene'][:100]}[/dim]")
+                    # Then fire the Director opening turn (LLM failure logs an error, node stays — CP-4)
+                    try:
+                        from engine.llm_bridge import LLMBridge
+                        bridge = LLMBridge()
+                        vitals = build_vitals_with_full_loadout(setting_id, char, st.session_state.active_org)
+                        compiled = bridge.compile_system_frame("besm_shell", vitals, {
+                            'node_id': start_node.node_id,
+                            'title': start_node.title,
+                            'description': start_node.description,
+                            'exits': start_node.exits,
+                            'required_check': getattr(start_node, 'required_check', None),
+                        })
+                        with st.spinner("AI Director is composing..."):
+                            result = bridge.dispatch_ollama_turn(ACTIVE_MODEL, compiled, "Player observes the scene.")
+                        if result.get('success'):
+                            prose, _ = bridge.inspect_llm_output(result['response'])
+                            nh.append(f"[bold yellow]AI Director:[/bold yellow] {prose}")
+                        else:
+                            nh.append(f"[bold red]System Error:[/bold red] LLM dispatch failed: {result.get('error', 'Unknown')}")
+                    except Exception as e:
+                        nh.append(f"[bold red]System Error:[/bold red] {e}")
+                    finally:
+                        save_runtime_snapshot(WEB_SESSION_ID, char, start_node.node_id, setting_id, active_module_name, st.session_state.active_org)
         handled = True
 
     elif cmd_lower == "/scv":

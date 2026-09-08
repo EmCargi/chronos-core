@@ -49,6 +49,8 @@ from .llm_bridge import LLMBridge
 from .guild_roster import (
     load_campaign_module,
     roster_dict_to_char,
+    build_vitals_with_full_loadout,
+    build_greeting_start,
 )
 from .config import ACTIVE_MODEL, THIN_MODEL, DEFAULT_RULES, DEFAULT_SETTING
 from .batch_ingest import run_auto_ingest

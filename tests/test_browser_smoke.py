@@ -196,7 +196,7 @@ def test_greeting_list_tags_survive_stripper():
 _PHASE_B_CASES = [
     ("/diceless 17", "Total Combat Roll"),
     ("/diceless hedge 10 mind", "Auto-7"),
-    ("/shock 30", "UNCONSCIOUS"),
+    ("/shock 30", None),  # outcome depends on 2d6 roll vs Soul — asserted specially below
     ("/fall 5", "damage"),
     ("/range 20 5", "Minor Obstacle"),
     ("/size 3", "Size 3"),
@@ -219,7 +219,19 @@ def test_phase_b_math_commands(app, cmd, needle):
     _send_command(app, cmd)
     assert not app.exception, [e.value for e in app.exception]
     joined = "\n".join(_all_markdown(app))
-    assert needle in joined, f"{cmd} should render '{needle}'"
+    if needle is None:
+        # /shock outcome depends on a random 2d6 roll vs Soul — accept any valid branch
+        assert any(k in joined for k in ("SHOCKED", "UNCONSCIOUS", "below SV")), f"{cmd} should render a shock outcome"
+    else:
+        assert needle in joined, f"{cmd} should render '{needle}'"
+
+
+def test_shock_roll_any_outcome(app):
+    """/shock renders a valid BESM outcome regardless of the random roll."""
+    _send_command(app, "/shock 30")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert any(k in joined for k in ("SHOCKED", "UNCONSCIOUS", "below SV"))
 
 
 def test_phase_b_bad_args_get_usage(app):
@@ -237,3 +249,30 @@ def test_phase_b_maneuver_usage(app):
     joined = "\n".join(_all_markdown(app))
     assert "Maneuver menu" in joined
     assert "called <shot>" in joined
+
+
+# ── Phase D: greeting starts (node commit first — CP-4) ─────────────────────
+
+def test_startgreeting_no_greetings_fallback(app):
+    """/startgreeting on an unlinked character (boss) → graceful no-greetings
+    message, never a traceback, node unchanged."""
+    _send_command(app, "/startgreeting 1")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "No greetings available" in joined or "Usage: /startgreeting" in joined
+
+
+def test_startgreeting_bad_index(app):
+    """/startgreeting <out-of-range> → usage warning (CP-5), node unchanged."""
+    _send_command(app, "/startgreeting 999")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "not found" in joined or "No greetings available" in joined
+
+
+def test_startgreeting_non_numeric(app):
+    """/startgreeting <non-numeric> → usage warning (CP-5), no traceback."""
+    _send_command(app, "/startgreeting abc")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Usage: /startgreeting" in joined

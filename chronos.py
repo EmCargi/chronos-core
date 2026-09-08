@@ -197,50 +197,8 @@ def build_vitals_with_full_loadout(setting_id: str, char: CharacterSchema, org_n
     (Combat Techniques, Skills, Defects, Shock Value) from the roster DB.
     Falls back to empty defaults if the character has no data.
     """
-    import json
-    from engine.guild_roster import get_character, get_organization
-    vitals = {
-        # core vitals
-        "name": char.name,
-        "current_hp": char.current_hp if char.current_hp is not None else char.max_hp,
-        "current_ep": char.current_ep if char.current_ep is not None else char.max_ep,
-        "stat_body": char.stat_body,
-        "stat_mind": char.stat_mind,
-        "stat_soul": char.stat_soul,
-        "max_hp": char.max_hp,
-        "max_ep": char.max_ep,
-        "base_acv": char.base_acv,
-        "base_dcv": char.base_dcv,
-        # narrative syntax
-        "structural_fault": "",
-        "sixth_guard": "",
-        "levers": "",
-        # BESM rules
-        "combat_techniques": [],
-        "skills": [],
-        "defects": [],
-        "shock_value": char.shock_value if char.shock_value else char.max_hp // 5,
-    }
-    roster_char = get_character(setting_id, char.name)
-    if roster_char:
-        vitals["structural_fault"] = roster_char.get("structural_fault", "")
-        vitals["sixth_guard"] = roster_char.get("sixth_guard", "")
-        vitals["levers"] = roster_char.get("levers", "")
-        vitals["combat_techniques"] = json.loads(roster_char.get("combat_techniques", "[]"))
-        vitals["skills"] = json.loads(roster_char.get("skills", "[]"))
-        vitals["defects"] = json.loads(roster_char.get("defects", "[]"))
-        vitals["shock_value"] = roster_char.get("shock_value", char.max_hp // 5)
-    # Home guild / hub (organization Narrative Syntax)
-    org = get_organization(setting_id, org_name) if org_name else None
-    vitals["org_name"] = org["name"] if org else ""
-    vitals["org_type"] = org["organization_type"] if org else ""
-    vitals["org_leader"] = org["leader"] if org else ""
-    vitals["org_base"] = org["base_of_operations"] if org else ""
-    vitals["org_scale"] = org["scale_tier"] if org else ""
-    vitals["org_structural_fault"] = org["structural_fault"] if org else ""
-    vitals["org_sixth_guard"] = org["sixth_guard"] if org else ""
-    vitals["org_levers"] = org["levers"] if org else ""
-    return vitals
+    from engine.guild_roster import build_vitals_with_full_loadout as _build
+    return _build(setting_id, char, org_name)
 
 def render_interface_grid(character_data: dict, current_node: dict, narrative_history: list[str], inventory_items: list) -> Layout:
     """
@@ -296,17 +254,8 @@ def build_greeting_start(char, greeting: dict, active_org: str, idx: int):
     hub becomes the literal starting location; field greetings open on a generic
     quest node. Returns (kind, NodeSchema, assembled_text).
     """
-    from engine.guild_roster import classify_greeting
-    kind = classify_greeting(greeting)
-    greeting_text = greeting.get("text", "")
-    if greeting.get("opening"):
-        greeting_text += f"\n\n{getattr(char, 'name', 'You')}: \"{greeting['opening']}\""
-    if kind == "domestic":
-        hub_title = f"{active_org} Guildhall" if active_org else "Guildhall"
-        node = NodeSchema(node_id="hub_guildhall", title=hub_title, description=greeting_text, exits={})
-    else:
-        node = NodeSchema(node_id=f"greeting_{idx+1}", title=f"{getattr(char, 'name', 'You')} — Greeting {idx+1}", description=greeting_text, exits={})
-    return kind, node, greeting_text
+    from engine.guild_roster import build_greeting_start as _build
+    return _build(char, greeting, active_org, idx)
 
 def main():
     # 1. Initialize SQLite session database and canonical setting roster
