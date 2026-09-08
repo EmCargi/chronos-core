@@ -189,3 +189,51 @@ def test_greeting_list_tags_survive_stripper():
     cleaned = _rich_to_markdown(rendered)
     assert "[Hub]" in cleaned or "[Quest]" in cleaned
     assert "[dim]" not in cleaned
+
+
+# ── Phase B: deterministic BESM math (zero LLM, zero writes) ────────────────
+
+_PHASE_B_CASES = [
+    ("/diceless 17", "Total Combat Roll"),
+    ("/diceless hedge 10 mind", "Auto-7"),
+    ("/shock 30", "SHOCKED"),
+    ("/fall 5", "damage"),
+    ("/range 20 5", "Minor Obstacle"),
+    ("/size 3", "Size 3"),
+    ("/defence 25 10 5 1", "Defence Pipeline"),
+    ("/sanity severe", "trauma"),
+    ("/recover", "Recovery Rates"),
+    ("/maneuver stance aim 2 ranged", "Aim (round 2)"),
+    ("/maneuver strike 12", "Strike to Wound"),
+    ("/maneuver two-weapon 2", "Two-Weapon attack (two targets)"),
+    ("/maneuver multi 3", "3 targets, one attack roll"),
+    ("/maneuver called disarm_melee", "Called Shot:"),
+    ("/resist poison 3", "Blight 3"),
+    ("/attack", "no active obstacle"),
+]
+
+
+@pytest.mark.parametrize("cmd,needle", _PHASE_B_CASES)
+def test_phase_b_math_commands(app, cmd, needle):
+    """/<math> computes deterministic BESM math locally — no exception, no LLM."""
+    _send_command(app, cmd)
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert needle in joined, f"{cmd} should render '{needle}'"
+
+
+def test_phase_b_bad_args_get_usage(app):
+    """CP-5: bad args on a math command → usage warning, never a traceback."""
+    _send_command(app, "/diceless not_a_number")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Usage: /diceless" in joined
+
+
+def test_phase_b_maneuver_usage(app):
+    """/maneuver list renders the maneuver menu."""
+    _send_command(app, "/maneuver list")
+    assert not app.exception, [e.value for e in app.exception]
+    joined = "\n".join(_all_markdown(app))
+    assert "Maneuver menu" in joined
+    assert "called <shot>" in joined

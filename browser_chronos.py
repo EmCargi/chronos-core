@@ -29,6 +29,8 @@ from engine import (
     execute_action_check, check_shock, check_incapacitation,
     check_poison_resistance, check_sanity, check_catastrophic_damage,
     resolve_combat_roll, resolve_attack_damage, character_scv,
+    falling_damage, range_obstacle, size_lookup, size_knockback,
+    sanity_obstacle, hp_recovery, ep_recovery,
     compute_tcr, resolve_diceless_combat, hedged_check,
     resolve_tactical_stance, two_weapon_attack, strike_to_wound,
     touch_attack, resolve_called_shot, grapple_attack_edges,
@@ -80,6 +82,20 @@ _RICH_TAG_RE = re.compile(rf"\[/?{_RICH_STYLE_TOKEN}(?:\s+{_RICH_STYLE_TOKEN})*\
 def _rich_to_markdown(text: str) -> str:
     """Strip Rich console markup for st.markdown, preserving semantic [Hub]/[Quest] tags."""
     return _RICH_TAG_RE.sub("", text)
+
+
+def _obstacle_label(weight: int) -> str:
+    """Turn an obstacle weight into its BESM-facing label (mirrors chronos.py)."""
+    if weight <= 0:
+        return "no obstacle"
+    return "Minor Obstacle" if weight == 1 else "Major Obstacle"
+
+
+def _edge_label(weight: int) -> str:
+    """Turn an edge weight into its BESM-facing label (mirrors chronos.py)."""
+    if weight <= 0:
+        return "no edge"
+    return "Minor Edge" if weight == 1 else "Major Edge"
 
 # ── page config ───────────────────────────────────────────────────────────
 st.set_page_config(page_title="Chronos Core — Web Edition", layout="wide")
@@ -422,6 +438,421 @@ if player_input:
                     nh.append(f"  [italic]{t['lore']}[/italic]")
             else:
                 nh.append(f"[bold yellow]System:[/bold yellow] No threat matching '{name}'. Try /threat alone to list all.")
+        handled = True
+
+    # ── Phase B: deterministic BESM math (zero LLM, zero writes) ──────────
+    elif cmd_lower.startswith("/shock"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /shock <damage_taken>")
+        else:
+            try:
+                dmg = int(parts[1])
+            except ValueError:
+                nh.append("[bold yellow]System:[/bold yellow] Damage must be an integer.")
+            else:
+                r = check_shock(char, dmg)
+                if not r["triggered"]:
+                    nh.append(f"[bold green]Engine:[/bold green] {dmg} damage — below SV ({char.shock_value_computed}). No shock check triggered.")
+                elif r["status_key"] is None:
+                    nh.append(f"[bold green]Engine:[/bold green] {r['severity']} shock check PASSED (roll {r['roll']}+Soul{char.stat_soul}={r['total']} vs TN {r['target']}).")
+                elif r["status_key"] == "shocked":
+                    nh.append(f"[bold red]Engine:[/bold red] SHOCKED! Roll {r['roll']}+Soul{char.stat_soul}={r['total']} vs TN {r['target']} — margin {r['margin']}. Stunned — lose next action.")
+                else:
+                    nh.append(f"[bold red]Engine:[/bold red] UNCONSCIOUS! {r['unconscious_rounds']} rounds. Roll {r['roll']}+Soul{char.stat_soul}={r['total']} vs TN {r['target']} — margin {r['margin']} > Soul.")
+        handled = True
+
+    elif cmd_lower.startswith("/resist"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /resist <poison|sleep|paralysis> [blight_level|obstacle]")
+        else:
+            rtype = parts[1].lower()
+            if rtype == "poison":
+                try:
+                    blight = int(parts[2]) if len(parts) > 2 else 1
+                except ValueError:
+                    nh.append("[bold yellow]System:[/bold yellow] Blight level must be an integer.")
+                else:
+                    r = check_poison_resistance(char, blight)
+                    outcome = "PASSED (20% damage)" if r["success"] else "FAILED (full damage)"
+                    nh.append(
+                        f"[bold {'green' if r['success'] else 'red'}]Engine:[/bold {'green' if r['success'] else 'red'}] "
+                        f"Blight {blight}: roll {r['roll']}+Body{char.stat_body}={r['total']} vs TN {r['target']} — {outcome}"
+                    )
+            elif rtype in ("sleep", "paralysis", "incapacitation"):
+                obs = parts[2] if len(parts) > 2 else "none"
+                r = check_incapacitation(char, obs)
+                outcome = "RESISTED" if r["success"] else "AFFECTED"
+                nh.append(
+                    f"[bold {'green' if r['success'] else 'red'}]Engine:[/bold {'green' if r['success'] else 'red'}] "
+                    f"{rtype}: roll {r['roll']}+Stat{max(char.stat_body, char.stat_soul)}={r['total']} vs TN {r['target']} "
+                    f"[{r.get('obstacle', 'none')}] — {outcome}"
+                )
+            else:
+                nh.append(f"[bold yellow]System:[/bold yellow] Unknown resist type: {rtype}. Use: poison, sleep, paralysis.")
+        handled = True
+
+    elif cmd_lower.startswith("/fall"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /fall <meters>")
+        else:
+            try:
+                dist = float(parts[1])
+            except ValueError:
+                nh.append("[bold yellow]System:[/bold yellow] Distance must be a number.")
+            else:
+                dmg = falling_damage(dist)
+                nh.append(f"[bold red]Engine:[/bold red] Fall from {dist}m → [bold white]{dmg} HP[/bold white] damage.")
+        handled = True
+
+    elif cmd_lower.startswith("/range"):
+        parts = cmd.split()
+        if len(parts) < 3:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /range <max_range> <distance>")
+        else:
+            try:
+                max_r, dist = float(parts[1]), float(parts[2])
+            except ValueError:
+                nh.append("[bold yellow]System:[/bold yellow] Values must be numbers.")
+            else:
+                obs = range_obstacle(max_r, dist)
+                if obs is None and dist <= max_r:
+                    nh.append(f"[bold green]Engine:[/bold green] {dist}m from {max_r}m max — Effective range, no obstacle.")
+                elif obs:
+                    nh.append(f"[bold yellow]Engine:[/bold yellow] {dist}m from {max_r}m max — {obs.title()} Obstacle.")
+                else:
+                    nh.append(f"[bold red]Engine:[/bold red] {dist}m — out of range (max {max_r}m).")
+        handled = True
+
+    elif cmd_lower.startswith("/size"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /size <rank> (-3 to 6)")
+        else:
+            try:
+                rank = int(parts[1])
+            except ValueError:
+                nh.append("[bold yellow]System:[/bold yellow] Rank must be an integer (-3 to 6).")
+            else:
+                info = size_lookup(rank)
+                if info:
+                    nh.append(
+                        f"[bold white]Size {rank} — {info['category']}[/bold white] | "
+                        f"Mass: {info['mass']} | Damage: {info['strength_damage']:+d} | "
+                        f"AR: {info['armour']:+d} | Ranged: {info['ranged_mod']:+d} | "
+                        f"Range×: {info['range_mult']}"
+                    )
+                    kb = size_knockback(rank, 0)
+                    if kb["auto_knockback"]:
+                        nh.append(f"[bold red]  Auto Knockback: {kb['distance_meters']}m vs Medium target[/bold red]")
+                else:
+                    nh.append("[bold yellow]System:[/bold yellow] Unknown size rank. Range: -3 (Diminutive) to 6 (Colossal).")
+        handled = True
+
+    elif cmd_lower.startswith("/defence"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /defence <damage> [armour_AR] [force_field_AR] [penetration_ranks]")
+        else:
+            try:
+                dmg = int(parts[1])
+                ar = int(parts[2]) if len(parts) > 2 else 0
+                ff = int(parts[3]) if len(parts) > 3 else 0
+                pen = int(parts[4]) if len(parts) > 4 else 0
+            except ValueError:
+                nh.append("[bold yellow]System:[/bold yellow] All values must be integers.")
+            else:
+                r = resolve_attack_damage(dmg, armour_rating=ar, force_field_ar=ff,
+                                           penetrating_ranks=pen,
+                                           current_hp=char.current_hp or char.max_hp,
+                                           max_hp=char.max_hp)
+                nh.append(
+                    f"[bold white]Defence Pipeline[/bold white] — {dmg} incoming → "
+                    f"FF {r['force_field_ar']}AR → {r['after_force_field']} | "
+                    f"Armour {r['effective_armour_ar']}AR → {r['after_armour']} | "
+                    f"Net: [bold red]{r['net_damage']} HP[/bold red]"
+                )
+                if r['hp_absorbed']:
+                    nh.append(f"[bold green]  Absorbed: {r['hp_absorbed']} HP, {r['ep_absorbed']} EP[/bold green]")
+        handled = True
+
+    elif cmd_lower.startswith("/sanity"):
+        parts = cmd.split()
+        trauma = parts[1].lower() if len(parts) > 1 else "mild"
+        sp_max = char.stat_mind + char.stat_soul
+        sp_current = sp_max  # default: full SP unless tracked elsewhere
+        r = check_sanity(char.stat_mind, char.stat_soul, sp_current, trauma)
+        obs = sanity_obstacle(r["new_sp"])
+        outcome = "PASSED" if r["passed"] else f"FAILED (-{r['sp_loss']} SP)"
+        nh.append(
+            f"[bold {'green' if r['passed'] else 'red'}]Engine:[/bold {'green' if r['passed'] else 'red'}] "
+            f"{trauma.title()} trauma: roll {r['roll']}+{(char.stat_mind+char.stat_soul)//2}={r['total']} vs TN {r['target']} — {outcome}"
+        )
+        if obs:
+            nh.append(f"[bold red]  Sanity Spiral: {obs.title()} Obstacle on all rolls[/bold red]")
+        handled = True
+
+    elif cmd_lower == "/recover":
+        hp_day = hp_recovery(char.stat_body, 1)
+        ep_hour = ep_recovery(char.stat_mind, char.stat_soul, 1)
+        blocks = defect_blocks_recovery(char.defects or [])
+        nh.append(
+            f"[bold white]Recovery Rates:[/bold white] HP={hp_day}/day"
+            + (" (×2 medical)" if not blocks["hp"] else " [red](BLOCKED: No Healing)[/red]")
+            + f" | EP={ep_hour}/hour"
+            + (" [red](BLOCKED: Nightmares)[/red]" if blocks["rest"] else "")
+        )
+        handled = True
+
+    elif cmd_lower.startswith("/diceless"):
+        parts = cmd.split()
+        sub = parts[1].lower() if len(parts) > 1 else "help"
+        if sub in ("usage", "help"):
+            nh.append("[bold yellow]System:[/bold yellow] /diceless usage:")
+            nh.append("[dim]  /diceless <defender_cv> [AR] [extra_defences] [edge] — pure-algebraic clash vs a challenge[/dim]")
+            nh.append("[dim]  /diceless hedge <target> [body|mind|soul] — auto-7 non-combat check (BESM4 p182)[/dim]")
+            nh.append("[dim]  edge for the attacker: minor | major[/dim]")
+        elif sub == "hedge":
+            if len(parts) < 3:
+                nh.append("[bold yellow]System:[/bold yellow] Usage: /diceless hedge <target> [body|mind|soul]")
+            else:
+                try:
+                    target = int(parts[2])
+                except ValueError:
+                    nh.append("[bold yellow]System:[/bold yellow] Target must be an integer.")
+                else:
+                    stat_key = parts[3].lower() if len(parts) > 3 else "body"
+                    stat_map = {"body": char.stat_body, "mind": char.stat_mind, "soul": char.stat_soul}
+                    if stat_key not in stat_map:
+                        nh.append("[bold yellow]System:[/bold yellow] Unknown stat. Use body, mind, or soul.")
+                    else:
+                        r = hedged_check(stat_map[stat_key], target)
+                        veredict = "PASSED" if r["success"] else "FAILED"
+                        nh.append(
+                            f"[bold {'green' if r['success'] else 'red'}]Engine:[/bold {'green' if r['success'] else 'red'}] "
+                            f"Auto-7 ({r['rolled']}) + {stat_key.upper()}{r['total']-r['rolled']} = {r['total']} vs TN {target} — {veredict}"
+                        )
+        else:
+            try:
+                dcv = int(parts[1])
+            except (IndexError, ValueError):
+                nh.append("[bold yellow]System:[/bold yellow] Usage: /diceless <defender_cv> [AR] [extra_defences] [edge]")
+            else:
+                ar = int(parts[2]) if len(parts) > 2 else 0
+                edef = int(parts[3]) if len(parts) > 3 else 0
+                edge = parts[4].lower() if len(parts) > 4 else None
+                if edge not in ("minor", "major"):
+                    if edge is not None:
+                        nh.append("[bold yellow]System:[/bold yellow] Edge must be minor or major — ignoring.")
+                    edge = None
+                attacker = {
+                    "combat_value": char.base_acv,
+                    "current_hp": char.current_hp if char.current_hp is not None else char.max_hp,
+                    "target_ar": ar,
+                    "target_extra_defences": edef,
+                }
+                if edge:
+                    attacker["edge"] = edge
+                a = compute_tcr(**attacker)
+                d = compute_tcr(combat_value=dcv)
+                r = resolve_diceless_combat(a["tcr"], d["tcr"])
+                band_title = r["band"].replace("_", " ").title()
+                victor = "Attacker" if r["attacker_wins"] else "Defender"
+                nh.append(
+                    f"[bold white]Total Combat Roll[/bold white] — "
+                    f"Attacker {char.name}: TCR {a['tcr']} (CV {a['combat_value']}+HP {a['hp_mod']}"
+                    + (f"+Edge {a['edge_mod']}" if edge else "")
+                    + f"-AR {a['armour_mod']}-Def {a['defence_mod']}) | "
+                    f"Defender: TCR {d['tcr']} (CV {dcv})"
+                )
+                nh.append(
+                    f"[bold {'green' if r['attacker_wins'] else 'red'}]Resolve:[/bold {'green' if r['attacker_wins'] else 'red'}] "
+                    f"MoS {r['mos']} → {band_title} ({r['duration']}). {victor} wins — "
+                    f"victor −{r['victor_hp_loss_pct']}% HP, opponent −{r['opponent_hp_loss_pct']}% HP."
+                )
+        handled = True
+
+    elif cmd_lower.startswith("/maneuver"):
+        parts = cmd.split()
+        if len(parts) < 2:
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /maneuver <sub> (run '/maneuver list' for the menu).")
+        else:
+            techs = char.combat_techniques or []
+            sub = parts[1].lower()
+            if sub in ("usage", "help", "list"):
+                nh.append("[bold yellow]System:[/bold yellow] Maneuver menu:")
+                nh.append("[dim]  stance <aim|wait|total_defence> [consecutive_rounds] [ranged] — tactical action[/dim]")
+                nh.append("[dim]  two-weapon <1|2> — 1 target minor obstacle, 2 targets major[/dim]")
+                nh.append("[dim]  strike <dmg> [area] [autofire] [spreading] — flat wound damage[/dim]")
+                nh.append("[dim]  touch [protected] — passive Minor Edge[/dim]")
+                nh.append("[dim]  called <shot> — disarm_melee|disarm_ranged|reduce_armour|bypass_armour|vital_spot|weak_point_*[/dim]")
+                nh.append("[dim]  grapple <defender_free_hands> [attacker_free_hands] [size_delta] — grab initiation[/dim]")
+                nh.append("[dim]  grabbed <grappler_body> [much_stronger] [much_weaker] — the Grabbed condition[/dim]")
+                nh.append("[dim]  escape <grappler_body> [damage_dealt] — break a grapple[/dim]")
+                nh.append("[dim]  pin — the Pinned condition[/dim]")
+                nh.append("[dim]  multi <num_targets> — dispersion across N defenders[/dim]")
+            elif sub in ("stance", "aim", "wait", "total_defence"):
+                stance = (parts[2] if sub == "stance" and len(parts) > 2 else sub).lower()
+                try:
+                    cr = int(parts[3]) if sub == "stance" and len(parts) > 3 else 1
+                except ValueError:
+                    nh.append("[bold yellow]System:[/bold yellow] consecutive_rounds must be an integer.")
+                    stance = "invalid"
+                ranged = len(parts) > 4 and parts[4].lower() in ("ranged", "true", "1") if sub == "stance" else False
+                if stance not in ("aim", "wait", "total_defence"):
+                    if stance != "invalid":
+                        nh.append("[bold yellow]System:[/bold yellow] stance must be aim, wait, or total_defence.")
+                else:
+                    r = resolve_tactical_stance(stance, has_ranged=ranged, consecutive_rounds=cr)
+                    if not r["valid"]:
+                        nh.append(f"[bold red]Maneuver Denied:[/bold red] {r['reason']}")
+                    elif stance == "total_defence":
+                        nh.append(
+                            f"[bold cyan]Maneuver:[/bold cyan] Total Defence — {_edge_label(r['defence_edge'])} to defence; attacks off this round."
+                        )
+                    else:
+                        nh.append(
+                            f"[bold cyan]Maneuver:[/bold cyan] {stance.title()} (round {cr}) — {_edge_label(r['attack_edge'])} to next attack."
+                        )
+            elif sub == "two-weapon":
+                same = not (len(parts) > 2 and parts[2] in ("2", "two"))
+                r = two_weapon_attack(same_target=same, techniques=techs)
+                target_txt = "one target" if same else "two targets"
+                if r["negated"]:
+                    nh.append(f"[bold cyan]Maneuver:[/bold cyan] Two-Weapon attack ({target_txt}) — penalty negated by 'Two Weapons' technique.")
+                else:
+                    nh.append(f"[bold cyan]Maneuver:[/bold cyan] Two-Weapon attack ({target_txt}) — {_obstacle_label(r['obstacle'])}.")
+            elif sub == "strike":
+                try:
+                    base_dmg = int(parts[2])
+                except (IndexError, ValueError):
+                    nh.append("[bold yellow]System:[/bold yellow] Usage: /maneuver strike <damage> [area] [autofire] [spreading]")
+                else:
+                    flags = [p.lower() for p in parts[3:]]
+                    r = strike_to_wound(base_dmg, has_area="area" in flags,
+                                        has_autofire="autofire" in flags,
+                                        has_spreading="spreading" in flags)
+                    if r["valid"]:
+                        nh.append(f"[bold cyan]Maneuver:[/bold cyan] Strike to Wound — flat [bold white]{r['damage']} HP[/bold white] damage (un-multiplied).")
+                    else:
+                        nh.append(f"[bold red]Maneuver Denied:[/bold red] {r['reason']}")
+            elif sub == "touch":
+                protected = len(parts) > 2 and parts[2].lower() in ("protected", "called", "spot")
+                r = touch_attack(called_spot=protected)
+                if r["requires_called_shot"]:
+                    nh.append(f"[bold cyan]Maneuver:[/bold cyan] Touching a protected spot — {_edge_label(r['edge'])} but the called-shot obstacle still applies.")
+                else:
+                    nh.append(f"[bold cyan]Maneuver:[/bold cyan] Touch attack — passive {_edge_label(r['edge'])}.")
+            elif sub == "called":
+                shot = " ".join(parts[2:]).lower()
+                if not shot:
+                    nh.append("[bold yellow]System:[/bold yellow] Usage: /maneuver called <shot>")
+                else:
+                    r = resolve_called_shot(shot, techs)
+                    if not r["valid"]:
+                        nh.append(f"[bold red]Maneuver Denied:[/bold red] {r['reason']}")
+                    else:
+                        ar_txt = {"ignore": "ignores armour", "half": "halves armour", "": "normal armour"}.get(r["ar_effect"], "normal armour")
+                        nh.append(
+                            f"[bold cyan]Called Shot:[/bold cyan] {shot.title()} — {_obstacle_label(r['obstacle'])}, "
+                            f"{ar_txt}, damage ×{r['multiplier']}"
+                            + (f", Body TN {r['body_tn']}" if r.get("body_tn") else "")
+                            + (f", defender {_edge_label(r['defender_edge'])}" if r.get("defender_edge") else "")
+                        )
+            elif sub in ("grapple", "grab"):
+                try:
+                    dfh = int(parts[2])
+                except (IndexError, ValueError):
+                    nh.append("[bold yellow]System:[/bold yellow] Usage: /maneuver grapple <defender_free_hands> [attacker_free_hands] [size_delta]")
+                else:
+                    afh = int(parts[3]) if len(parts) > 3 else 2
+                    sdelta = int(parts[4]) if len(parts) > 4 else 0
+                    r = grapple_attack_edges(afh, dfh, sdelta)
+                    target_txt = "much weaker (penalties escalate)" if r["much_weaker"] else "even footing"
+                    nh.append(
+                        f"[bold cyan]Maneuver:[/bold cyan] Grapple initiation — {_edge_label(r['edge'])} (hands {r['free_hand_delta']:+d}), {target_txt}."
+                    )
+            elif sub == "grabbed":
+                try:
+                    gbody = int(parts[2])
+                except (IndexError, ValueError):
+                    nh.append("[bold yellow]System:[/bold yellow] Usage: /maneuver grabbed <grappler_body> [much_stronger] [much_weaker]")
+                else:
+                    strong = len(parts) > 3 and parts[3].lower() in ("much_stronger", "strong", "true")
+                    weak = len(parts) > 4 and parts[4].lower() in ("much_weaker", "weak", "true")
+                    r = grabbed_condition(gbody, char.stat_body, target_much_stronger=strong, target_much_weaker=weak)
+                    if r["paralyzed"]:
+                        nh.append(f"[bold red]Grabbed:[/bold red] {char.name} is much weaker — completely paralyzed, no rolls permitted.")
+                    else:
+                        nh.append(
+                            f"[bold cyan]Grabbed:[/bold cyan] {char.name} grappled by Body {gbody} vs Body {char.stat_body} — "
+                            f"{_obstacle_label(r['melee_obstacle'])} on melee, {_obstacle_label(r['task_obstacle'])} on movement."
+                        )
+            elif sub in ("escape", "grapple-escape"):
+                try:
+                    gbody = int(parts[2])
+                except (IndexError, ValueError):
+                    nh.append("[bold yellow]System:[/bold yellow] Usage: /maneuver escape <grappler_body> [damage_dealt]")
+                else:
+                    dmg = int(parts[3]) if len(parts) > 3 else 0
+                    r = escape_grapple(char.stat_body, gbody, dmg)
+                    if r["auto_escape"]:
+                        nh.append(f"[bold cyan]Escape:[/bold cyan] Pain Dissociation — {dmg} ≥ {r['threshold']} (5×Body {gbody}) — automatic escape.")
+                    else:
+                        nh.append(f"[bold cyan]Escape:[/bold cyan] Opposed Body roll vs {gbody}; or deal {r['threshold']} HP in one shot to auto-escape.")
+            elif sub == "pin":
+                r = pin_condition()
+                nh.append(
+                    f"[bold cyan]Pinned:[/bold cyan] no attack, no defence — {_obstacle_label(r['escape_obstacle'])} on escape rolls."
+                )
+            elif sub in ("multi", "dispersion", "multi-target"):
+                try:
+                    n = int(parts[2])
+                except (IndexError, ValueError):
+                    nh.append("[bold yellow]System:[/bold yellow] Usage: /maneuver multi <num_targets>")
+                else:
+                    r = multi_target_dispersion(n, techs)
+                    nh.append(
+                        f"[bold cyan]Maneuver:[/bold cyan] {n} targets, one attack roll — {_obstacle_label(r['obstacle'])}"
+                        + (f", defenders get {_edge_label(r['defender_edge'])}" if r["defender_edge"] else "")
+                        + (" (unified roll)" if r.get("unified_roll") else "")
+                    )
+            else:
+                nh.append(f"[bold yellow]System:[/bold yellow] Unknown maneuver '{sub}'. Run '/maneuver list' for the menu.")
+        handled = True
+
+    elif cmd_lower == "/attack":
+        if active_node.required_check:
+            check_info = active_node.required_check
+            stat_name = check_info.get("stat", "stat_body")
+            skill_rank = check_info.get("skill", 0)
+            difficulty = check_info.get("dv", 12)
+            fail_damage = check_info.get("fail_damage", 0)
+            stat_rank = getattr(char, stat_name, 6)
+            nh.append(f"[bold red]Combat Action:[/bold red] Attacking the obstacle using {stat_name.replace('stat_', '').upper()}...")
+            res = execute_action_check(stat_rank, skill_rank=skill_rank, difficulty_value=difficulty)
+            roll, total, success = res["roll"], res["total"], res["success"]
+            if success:
+                nh.append(f"[bold green]TELEMETRY SUCCESS:[/bold green] Breached {active_node.title} obstacle! (Roll: {roll} + Rank: {stat_rank} = {total} vs DV: {difficulty})")
+                active_node.required_check = None
+                STORY_MAP[active_node.node_id]["required_check"] = None
+                save_runtime_snapshot(WEB_SESSION_ID, char, active_node.node_id, setting_id, active_module_name, st.session_state.active_org)
+            else:
+                nh.append(f"[bold red]TELEMETRY FAILURE:[/bold red] Attack failed. (Roll: {roll} + Rank: {stat_rank} = {total} vs DV: {difficulty})")
+                current_hp = char.current_hp if char.current_hp is not None else char.max_hp
+                new_hp = max(0, current_hp - fail_damage)
+                char.current_hp = new_hp
+                try:
+                    with get_db_connection() as conn:
+                        conn.execute("UPDATE character_vitals SET current_hp = ? WHERE session_id = ? AND name = ?", (new_hp, WEB_SESSION_ID, char.name))
+                except Exception:
+                    pass
+                nh.append(f"[bold red]Damage Applied:[/bold red] Took {fail_damage} damage. Current HP: {new_hp}/{char.max_hp}")
+                st.session_state.char = char
+        else:
+            nh.append("[bold yellow]System:[/bold yellow] There is no active obstacle to attack in this area.")
         handled = True
 
     # ── Director fallback: free text + examine → LLM (unchanged) ──────────
