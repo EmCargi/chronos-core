@@ -443,3 +443,71 @@ def test_orgs_lists(app):
     assert not app.exception, [e.value for e in app.exception]
     joined = "\n".join(_all_markdown(app))
     assert "Organizations in" in joined
+
+
+# ── Streaming Director turns (st.write_stream; LLM patched offline) ────────
+
+def _patch_stream(monkeypatch, prose="", mech_tail="", chunks=None):
+    """Replace dispatch_ollama_turn_stream with a canned generator + ctx fill.
+
+    Mimics the real contract: yields clean prose chunks to the UI and fills
+    ctx["full_raw_text"] with prose + the [MECHANICAL PAYLOAD] tail (CP-17).
+    """
+    from engine import llm_bridge as lb
+
+    def _gen(self, model_name=None, complete_context="", user_input="", ctx=None):
+        if ctx is not None:
+            ctx["full_raw_text"] = prose + mech_tail
+        for c in (chunks if chunks is not None else [prose]):
+            yield c
+
+    monkeypatch.setattr(lb.LLMBridge, "dispatch_ollama_turn_stream", _gen)
+
+
+def _all_history(app):
+    """The narrative feed's source of truth (CP-18: prose must persist pre-rerun)."""
+    return app.session_state["narrative_history"]
+
+
+def test_free_text_streams_director(app, monkeypatch):
+    """Free text streams Director prose + applies the mechanical payload (HP drop)."""
+    _patch_stream(monkeypatch, prose="The goblin staggers and falls. ",
+                  mech_tail='[MECHANICAL PAYLOAD] {"hp_loss": 3}')
+    hp_before = app.session_state["char"].current_hp
+    _send_command(app, "I strike the goblin!")
+    assert not app.exception, [e.value for e in app.exception]
+    history = "\n".join(_all_history(app))
+    assert "I strike the goblin!" in history
+    assert "The goblin staggers and falls" in history
+    assert "empty stream" not in history
+    assert app.session_state["char"].current_hp == hp_before - 3
+
+
+def test_free_text_empty_stream_error(app, monkeypatch):
+    """An empty stream surfaces as a feed error, not a silent pass."""
+    _patch_stream(monkeypatch)
+    _send_command(app, "Hello?")
+    assert not app.exception, [e.value for e in app.exception]
+    history = "\n".join(_all_history(app))
+    assert "empty stream" in history
+
+
+def test_loot_streams_item(app, monkeypatch):
+    """/loot streams the find + parses the mechanical item payload into inventory."""
+    _patch_stream(monkeypatch, prose="You find a gleaming blade. ",
+                  mech_tail='[MECHANICAL PAYLOAD] {"item_name": "Chrono Blade", "item_type": "Weapon", "raw_modifiers": "+1"}')
+    _send_command(app, "/loot")
+    assert not app.exception, [e.value for e in app.exception]
+    history = "\n".join(_all_history(app))
+    assert "Item Acquired" in history
+    assert "Chrono Blade" in history
+
+
+def test_loot_empty_stream_offline_fallback(app, monkeypatch):
+    """/loot with an empty stream drops to the offline fallback item."""
+    _patch_stream(monkeypatch)
+    _send_command(app, "/loot")
+    assert not app.exception, [e.value for e in app.exception]
+    history = "\n".join(_all_history(app))
+    assert "Offline Fallback" in history
+    assert "Rust Vibroblade" in history

@@ -565,13 +565,20 @@ if player_input:
                             'exits': start_node.exits,
                             'required_check': getattr(start_node, 'required_check', None),
                         })
-                        with st.spinner("AI Director is composing..."):
-                            result = bridge.dispatch_ollama_turn(ACTIVE_MODEL, compiled, "Player observes the scene.")
-                        if result.get('success'):
-                            prose, _ = bridge.inspect_llm_output(result['response'])
+                        # Stream the Director opening turn; node stays committed on
+                        # failure (CP-4). Streamed prose is already clean — no
+                        # mechanical post-processing needed for a greeting start.
+                        ctx = {}
+                        prose = ""
+                        try:
+                            with st.chat_message("AI Director"):
+                                prose = st.write_stream(bridge.dispatch_ollama_turn_stream(ACTIVE_MODEL, compiled, "Player observes the scene.", ctx))
+                        except Exception as e:
+                            nh.append(f"[bold red]System Error:[/bold red] LLM dispatch failed: {e}")
+                        if prose:
                             nh.append(f"[bold yellow]AI Director:[/bold yellow] {prose}")
                         else:
-                            nh.append(f"[bold red]System Error:[/bold red] LLM dispatch failed: {result.get('error', 'Unknown')}")
+                            nh.append("[bold red]System Error:[/bold red] LLM dispatch failed")
                     except Exception as e:
                         nh.append(f"[bold red]System Error:[/bold red] {e}")
                     finally:
@@ -1128,14 +1135,22 @@ if player_input:
             from engine.llm_bridge import LLMBridge
             bridge = LLMBridge()
             compiled_prompt = bridge.compile_system_frame("besm_loot", vitals, {"title": active_node.title, "node_id": active_node.node_id})
-            with st.spinner("AI Director is composing..."):
-                response_dict = bridge.dispatch_ollama_turn(
-                    model_name=ACTIVE_MODEL,
-                    complete_context=compiled_prompt,
-                    user_input="Player performs search action inside local stasis grid.",
-                )
-            if response_dict.get("success"):
-                prose, item_data = bridge.inspect_llm_output(response_dict["response"])
+            # Stream the loot generation live; on stream failure fall through
+            # to the offline fallback item (prose stays "").
+            ctx = {}
+            prose = ""
+            try:
+                with st.chat_message("AI Director"):
+                    prose = st.write_stream(bridge.dispatch_ollama_turn_stream(
+                        model_name=ACTIVE_MODEL,
+                        complete_context=compiled_prompt,
+                        user_input="Player performs search action inside local stasis grid.",
+                        ctx=ctx,
+                    ))
+            except Exception:
+                prose = ""
+            if prose:
+                _, item_data = bridge.inspect_llm_output(ctx["full_raw_text"])
                 if item_data and "item_name" in item_data:
                     item_id = add_loot_to_inventory(WEB_SESSION_ID, item_data)
                     nh.append(f"[bold yellow]AI Director:[/bold yellow] {prose}")
@@ -1185,17 +1200,27 @@ if player_input:
         bridge = LLMBridge()
         compiled_prompt = bridge.compile_system_frame(DEFAULT_RULES, vitals, {"title": active_node.title, "node_id": active_node.node_id})
 
-        # Dispatch Ollama turn
-        with st.spinner("AI Director is composing..."):
-            response_dict = bridge.dispatch_ollama_turn(
-                model_name=ACTIVE_MODEL,
-                complete_context=compiled_prompt,
-                user_input=player_input,
-            )
+        # Stream the Director turn live. CP-17: the generator withholds the
+        # [MECHANICAL PAYLOAD] from the stream, so mechanical post-processing
+        # reads ctx["full_raw_text"] (the accumulated full response), not the
+        # write_stream return. CP-18: prose is appended to narrative_history
+        # BEFORE the handler falls through to the single st.rerun() below.
+        ctx = {}
+        prose = ""
+        try:
+            with st.chat_message("AI Director"):
+                prose = st.write_stream(bridge.dispatch_ollama_turn_stream(
+                    model_name=ACTIVE_MODEL,
+                    complete_context=compiled_prompt,
+                    user_input=player_input,
+                    ctx=ctx,
+                ))
+        except Exception as e:
+            st.error(f"LLM call failed: {e}")
+            nh.append(f"[bold red]System Error:[/bold red] LLM call failed: {e}")
 
-        if response_dict.get("success"):
-            prose, mechanical_data = bridge.inspect_llm_output(response_dict["response"])
-            st.markdown(prose)
+        if prose:
+            _, mechanical_data = bridge.inspect_llm_output(ctx["full_raw_text"])
 
             # Apply mechanical payload if present
             if mechanical_data:
@@ -1218,8 +1243,8 @@ if player_input:
             # Re-construct char in session state after mutation
             st.session_state.char = char
         else:
-            st.error(f"LLM call failed: {response_dict.get('error', 'unknown error')}")
-            nh.append(f"[bold red]System Error:[/bold red] LLM call failed: {response_dict.get('error', 'unknown')}")
+            st.error("LLM call failed: empty stream")
+            nh.append("[bold red]System Error:[/bold red] LLM call failed: empty stream")
 
     else:
         # Unknown /command — never sent to the LLM
