@@ -1,0 +1,84 @@
+{
+  "module_name": "Night City Heist v1",
+  "points_budget": 110,
+  "description": "A 5-district heist across Night City: meet the fixer in Watson, infiltrate an Arasaka data vault in Japantown, survive a betrayal in Heywood, breach the vault in Santo Domingo, and extract from Dogtown.",
+  "starting_node": "node_01_watson_guardian",
+  "presets": [
+    {
+      "name": "Night City Operative",
+      "stat_body": 6,
+      "stat_mind": 8,
+      "stat_soul": 6
+    }
+  ],
+  "nodes": {
+    "node_01_watson_guardian": {
+      "node_id": "node_01_watson_guardian",
+      "title": "The Meet at Lizzies",
+      "description": "Dexter DeShawn's fixer in Watson points you at a high-payoff Arasaka data vault in Japantown. Sweeten the deal or walk away.",
+      "exits": {
+        "north": "node_02_japantown_puzzle"
+      },
+      "required_check": {
+        "stat": "stat_soul",
+        "skill": 0,
+        "dv": 10,
+        "fail_damage": 0
+      }
+    },
+    "node_02_japantown_puzzle": {
+      "node_id": "node_02_japantown_puzzle",
+      "title": "The Arasaka Vault",
+      "description": "Japantown's netrunner dens guard a corpo data vault. Bypass the ICE and slip the payload out past the tower's security.",
+      "exits": {
+        "south": "node_01_watson_guardian",
+        "east": "node_03_heywood_setback"
+      },
+      "required_check": {
+        "stat": "stat_mind",
+        "skill": 0,
+        "dv": 14,
+        "fail_damage": 8
+      }
+    },
+    "node_03_heywood_setback": {
+      "node_id": "node_03_heywood_setback",
+      "title": "The Ambush",
+      "description": "A rival Valentino crew hits your convoy in Heywood — the fixer's been burned. Fight through or escape the firefight.",
+      "exits": {
+        "west": "node_02_japantown_puzzle",
+        "east": "node_04_santo_domingo_climax"
+      },
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 0,
+        "dv": 12,
+        "fail_damage": 10
+      }
+    },
+    "node_04_santo_domingo_climax": {
+      "node_id": "node_04_santo_domingo_climax",
+      "title": "The Vault Breach",
+      "description": "Santo Domingo's industrial sprawl hides the extraction point. Crack the facility's core — the hardest check of the run.",
+      "exits": {
+        "west": "node_03_heywood_setback",
+        "north": "node_05_dogtown_reward"
+      },
+      "required_check": {
+        "stat": "stat_mind",
+        "skill": 0,
+        "dv": 16,
+        "fail_damage": 15
+      }
+    },
+    "node_05_dogtown_reward": {
+      "node_id": "node_05_dogtown_reward",
+      "title": "Extraction at the Airstrip",
+      "description": "Dogtown's off-the-books airstrip. The get-away AV idles on the pad — the payload is yours. Buy in, or flatline trying.",
+      "exits": {
+        "south": "node_04_santo_domingo_climax"
+      },
+      "required_check": null
+    }
+  }
+}

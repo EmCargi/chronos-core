@@ -362,7 +362,7 @@ def test_setting_switches_and_radio_does_not_crash(app):
     sel = next((w for w in app.sidebar if getattr(w, "label", "") == "Setting"), None)
     assert sel is not None
     assert "guild_training_yard" in sel.options
-    assert len(sel.options) == 5
+    assert len(sel.options) == 6  # 5 discs + cyberpunk_2077 (disc 4)
 
 
 def test_setting_unknown(app):

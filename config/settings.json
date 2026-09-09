@@ -24,6 +24,13 @@
       "description": "The My Hero Academia U.A. Entrance Exam module: quirks, hero candidates, and the mock-city robot trial.",
       "default_module": "ua_entrance_exam.json",
       "character_label": "Hero Rank"
+    },
+    {
+      "setting_id": "cyberpunk_2077",
+      "name": "Cyberpunk 2077: Night City",
+      "description": "The Cyberpunk 2077 Night City heist module: street cred, chrome, and a 5-district run against Arasaka.",
+      "default_module": "night_city_heist_v1.json",
+      "character_label": "Street Cred"
     }
   ]
 }
