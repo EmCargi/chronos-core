@@ -474,7 +474,9 @@ def extract_character(md_text: str, source_path: str = "") -> dict:
     else:
         stats = derive_stats(letter, md_text)
 
-    return {
+    loadout = extract_loadout(md_text)
+
+    payload = {
         "name": CANONICAL_NAMES.get(meta["name"], meta["name"]),
         "rank_label": RANK_LABELS[letter],
         "race": meta["race"] or "Unknown",
@@ -490,7 +492,16 @@ def extract_character(md_text: str, source_path: str = "") -> dict:
         "sixth_guard": ns["sixth_guard"],
         "levers": ns["levers"],
         "archetype": stats["archetype"],
+        "combat_techniques": loadout["combat_techniques"],
+        "skills": loadout["skills"],
+        "defects": loadout["defects"],
+        "loadout_flags": loadout["flags"],
     }
+    # Explicit shock only when the sheet declares one — omitting the key lets
+    # upsert_character fall back to its computed default (None would store NULL).
+    if loadout["shock_value"] is not None:
+        payload["shock_value"] = loadout["shock_value"]
+    return payload
 
 
 def extract_file(path: str) -> list[dict]:
@@ -516,3 +527,185 @@ def extract_file(path: str) -> list[dict]:
         except ValueError as e:
             payloads.append({"error": str(e), "file": path})
     return payloads
+
+
+# ── loadout extraction (Combat Techniques / Skills / Defects / Shock) ────────
+# The registry sheets author full, CP-priced BESM builds that the classic
+# extractor dropped. These parsers lift them into the roster's loadout columns
+# deterministically (no LLM). Two section vocabularies are supported:
+# adventurer ("Combat Skills & Underbelly Payloads" / "Purchased Attributes") and
+# boss ("ALIGNMENT & … ATTRIBUTE BUILD" / "SYSTEMIC FRICTION (DEFECTS)"). See
+# changelog/proposals/2026-09-09-chronos-core-guild-loadout-pullover.md.
+
+# CP-2: pure stat-budget modifiers already encoded in the sheets' explicit HP/EP.
+PASSIVE_STAT_EXCLUSIONS = ["tough", "energised"]
+
+# CP-3: Skill Groups don't name their governing stat on the sheet. Deterministic
+# keyword map; anything unmatched falls back to Mind and is flagged in the dry run.
+SKILL_STAT_MAP = {
+    "domestic": "stat_soul",
+    "academic": "stat_mind",
+    "athletic": "stat_body",
+    "combat": "stat_body",
+    "social": "stat_soul",
+    "technical": "stat_mind",
+    "nature": "stat_soul",
+    "craft": "stat_mind",
+}
+DEFAULT_SKILL_STAT = "stat_mind"
+
+# Anchored to heading lines so prose false-positives ("123 CP with Defects",
+# "Attribute Build" mid-sentence) never start a section mid-file.
+_TECH_START = re.compile(
+    r"^#{1,6}[^\n]*(?:Combat Skills|Underbelly|Payload|Attribute Build|Attribute)",
+    re.M | re.I,
+)
+_ATTR_START = re.compile(
+    r"^#{1,6}[^\n]*(?:Purchased Attribute|Investment)", re.M | re.I
+)
+_DEFECT_START = re.compile(
+    r"^#{1,6}[^\n]*(?:Defects|Friction)", re.M | re.I
+)
+_SECTION_STOPS = [
+    re.compile(r"Individual Action Syntax Card", re.I),
+    re.compile(r"DM Cheat", re.I),
+    re.compile(r"GM Tactical|TACTICAL MANUAL", re.I),
+    re.compile(r"^#{1,2}\s", re.M),
+]
+_ENTRY_RE = re.compile(r"^\s*\*+\s*\*\*(.+?)\*\*\s*(?::\s*|\*\*\s*)?(.*)$")
+_SKILL_GROUP_RE = re.compile(r"Skill Group\s*\(([^)]*)\)", re.I)
+
+
+def _section_text(md_text: str, start_re, extra_stops: list = None) -> str:
+    """Slice the first section matching start_re, up to the EARLIEST next stop."""
+    start = re.search(start_re, md_text)
+    if not start:
+        return ""
+    s = start.end()
+    best = None
+    for stop in _SECTION_STOPS + (extra_stops or []):
+        m = re.search(stop, md_text[s:])
+        if m and (best is None or m.start() < best.start()):
+            best = m
+    if best:
+        return md_text[s:s + best.start()]
+    return md_text[s:]
+
+
+def _loadout_entries(section: str) -> list[tuple[str, str]]:
+    """Yield (bold_label, rest) for each bold-led bullet in a section.
+
+    Continuation lines (indented sub-bullets, italic payload math) fold into the
+    current entry's rest so the effect prose carries the full mechanical picture.
+    """
+    entries = []
+    current = None
+    for ln in section.splitlines():
+        m = _ENTRY_RE.match(ln)
+        if m:
+            if current:
+                entries.append(current)
+            current = [m.group(1).strip(), m.group(2).strip()]
+        elif current and (ln.startswith((" ", "\t", "*", "-"))):
+            current[1] += " " + re.sub(r"^\s*\*+\s*", "", ln).strip()
+    if current:
+        entries.append(current)
+    return entries
+
+
+def _entry_level(bold: str, rest: str) -> tuple[int, str]:
+    """Pull the numeric level from a bold label (Level/Rank N), defaulting to 1."""
+    m = re.search(r"\b(?:Level|Rank)\s*(\d+)", bold)
+    if m:
+        return int(m.group(1)), re.sub(r"\s*(?:Level|Rank)\s*\d+\s*", " ", bold).strip(" :").strip()
+    return 1, bold.strip(" :")
+
+
+def _clean_prose(text: str) -> str:
+    """Whitespace-collapse and strip cost/cite markers from effect/trigger prose."""
+    text = re.sub(r"\[Cost:\s*[^\]]*\]", "", text)
+    text = re.sub(r"\[Gain:\s*[^\]]*\]", "", text)
+    text = re.sub(r"\(Returns\s*[^)]*\)", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = text.strip("-").strip("—").strip("-").strip()
+    return re.sub(r"\s+\.\s*$", "", text).strip()
+
+
+def extract_loadout(md_text: str) -> dict:
+    """Deterministic loadout parse of a registry sheet.
+
+    Returns the roster's four loadout fields plus a review ``flags`` list:
+    combat_techniques, skills, defects, shock_value (explicit-over-derived), flags.
+    Best-effort per section — a missing section yields empty fields + a flag,
+    never a crash.
+    """
+    md_text = _strip_cites(md_text)
+    flags = []
+    techniques, skills, defects = [], [], []
+
+    tech_section = _section_text(md_text, _TECH_START, [_ATTR_START, _DEFECT_START])
+    attr_section = _section_text(md_text, _ATTR_START, [_DEFECT_START])
+    for section in (tech_section, attr_section):
+        for bold, rest in _loadout_entries(section):
+            if _SKILL_GROUP_RE.search(bold):
+                m = _SKILL_GROUP_RE.search(bold)
+                group = m.group(1).strip()
+                level, _ = _entry_level(bold, rest)
+                stat = SKILL_STAT_MAP.get(group.lower(), DEFAULT_SKILL_STAT)
+                if stat == DEFAULT_SKILL_STAT and group.lower() not in SKILL_STAT_MAP:
+                    flags.append(f"skill-default-stat:{group}")
+                skills.append({
+                    "name": f"Skill Group ({group})",
+                    "rank": level,
+                    "stat": stat,
+                    "specialisation": _clean_prose(rest),
+                })
+                continue
+            level, name = _entry_level(bold, rest)
+            if name.lower() in PASSIVE_STAT_EXCLUSIONS:
+                flags.append(f"excluded-passive:{name}")
+                continue
+            if name.lower() == "skill group":
+                continue
+            techniques.append({
+                "name": re.sub(r"^Attribute:\s*", "", name).strip(" :"),
+                "level": level,
+                "effect": _clean_prose(rest),
+            })
+
+    defect_section = _section_text(md_text, _DEFECT_START)
+    for bold, rest in _loadout_entries(defect_section):
+        name = re.sub(r"^Attribute:\s*", "", bold)
+        rank = 1
+        m = re.search(r"\bRank\s*(\d+)", name)
+        if m:
+            rank = int(m.group(1))
+            name = re.sub(r"\s*Rank\s*\d+\s*", " ", name).strip()
+        cp = 0
+        m2 = re.search(r"\[Gain:\s*-?\s*(\d+)\s*CP\]", rest) or re.search(
+            r"\(Returns\s*\+\s*(\d+)\s*CP\)", rest
+        )
+        if m2:
+            cp = int(m2.group(1))
+        defects.append({
+            "name": name.strip(" :"),
+            "rank": rank,
+            "cp": cp,
+            "trigger": _clean_prose(rest),
+        })
+
+    # Explicit Shock Value from the stats table (explicit-over-derived).
+    shock = None
+    shock_m = re.search(
+        r"\*\*Shock Value:?\*\*[^|\n]*\|\s*\**\s*(\d+)", md_text, re.I
+    ) or re.search(r"\*\*Shock Value:?\*\*\s*\**\s*(\d+)", md_text, re.I)
+    if shock_m:
+        shock = int(shock_m.group(1))
+
+    return {
+        "combat_techniques": techniques,
+        "skills": skills,
+        "defects": defects,
+        "shock_value": shock,
+        "flags": flags,
+    }

@@ -19,6 +19,7 @@ from engine.guild_pullover import (
     classify_archetype,
     extract_character,
     extract_file,
+    extract_loadout,
     CANONICAL_NAMES,
     RANK_LABELS,
 )
@@ -305,3 +306,120 @@ def test_registry_narrative_syntax():
     # Scaffolding / quote artifacts stripped
     assert '"' not in p["structural_fault"]
     assert "**The Strategy:**" not in p["levers"]
+
+
+# ── loadout extraction (Combat Techniques / Skills / Defects / Shock) ────────
+
+ADVENTURER_LOADOUT_MD = """##### Combat Skills & Underbelly Payloads
+*   **Sovereign Spear Thrust:** 5 (Weapon Level) × 4 (DM) + 6 = 26 piercing damage.
+*   **Hostess's Encouragement (Active Buff):** Cheers allies, granting a Minor Edge.
+
+###### 🎒 Purchased Attributes & Investments (66 CP)
+*   **Tough Level 1:** Increases Max Health by +10 (2 CP).
+*   **Energised Level 5:** Increases Max Energy by +50 (5 CP).
+*   **Companion (The Skeleton Family) Level 8:** Summons three combat proxies (32 CP).
+*   **Skill Group (Domestic) Level 3:** Tea ceremonies, baking (9 CP).
+*   **Skill Group (Mystery) Level 1:** Unknown frontier lore (2 CP).
+
+###### 🛑 Defects & Systemic Frictions (Returns +6 CP)
+*   **Inept Attack Rank 2:** Cannot execute physical attacks (Returns +4 CP).
+*   **Easily Distracted Rank 1:** Sidetracked by tea settings (Returns +1 CP).
+
+| **Shock Value** | **12** | threshold |
+"""
+
+BOSS_LOADOUT_MD = """### 🛡️ III. ALIGNMENT & S-RANK ATTRIBUTE BUILD (180 CP)
+*   **Attribute: Armour Level 8 (Stopping Power: AR 40)** [Cost: 16 CP]
+    *   *Description:* Reduces all incoming damage by 40 points per hit.
+*   **Attribute: Weapon Level 12 (120 Slashing Damage)** [Cost: 24 CP]
+*   **Superstrength Level 4:** [Cost: 16 CP] — +40 damage to melee strikes.
+
+### 🛑 IV. THE SYSTEMIC FRICTION (DEFECTS)
+*   **Nemesis (Tomoe Shirakane):** [Gain: -2 CP] — Her attacks gain a Minor Edge.
+*   **Vulnerability (Sacred Leyline Magic):** [Gain: -3 CP] — Double damage from leylines.
+"""
+
+NO_SECTION_MD = """### Description
+- Name: Barren
+
+- Rank: D-Rank
+
+A character with no loadout sections at all.
+"""
+
+
+def test_loadout_adventurer_payloads_to_techniques():
+    lo = extract_loadout(ADVENTURER_LOADOUT_MD)
+    names = [t["name"] for t in lo["combat_techniques"]]
+    assert "Sovereign Spear Thrust" in names
+    assert "Hostess's Encouragement (Active Buff)" in names
+    assert "Companion (The Skeleton Family)" in names
+    assert lo["combat_techniques"][2]["level"] == 8
+
+
+def test_loadout_passive_excluded_and_flagged():
+    """CP-2: Tough/Energised are skipped (encoded in HP/EP) and flagged."""
+    lo = extract_loadout(ADVENTURER_LOADOUT_MD)
+    names = [t["name"] for t in lo["combat_techniques"]]
+    assert "Tough" not in names
+    assert "Energised" not in names
+    assert any("excluded-passive:Tough" in f for f in lo["flags"])
+    assert any("excluded-passive:Energised" in f for f in lo["flags"])
+
+
+def test_loadout_skill_group_stat_map():
+    """CP-3: Domestic→Soul; unknown group defaults to Mind and is flagged."""
+    lo = extract_loadout(ADVENTURER_LOADOUT_MD)
+    by_name = {s["name"]: s for s in lo["skills"]}
+    assert by_name["Skill Group (Domestic)"]["stat"] == "stat_soul"
+    assert by_name["Skill Group (Domestic)"]["rank"] == 3
+    assert by_name["Skill Group (Mystery)"]["stat"] == "stat_mind"
+    assert any("skill-default-stat:Mystery" in f for f in lo["flags"])
+
+
+def test_loadout_defects_structured():
+    lo = extract_loadout(ADVENTURER_LOADOUT_MD)
+    by_name = {d["name"]: d for d in lo["defects"]}
+    assert by_name["Inept Attack"]["rank"] == 2
+    assert by_name["Inept Attack"]["cp"] == 4
+    assert "Cannot execute physical attacks" in by_name["Inept Attack"]["trigger"]
+    assert by_name["Easily Distracted"]["rank"] == 1
+
+
+def test_loadout_boss_attributes_and_defects():
+    """CP-1: boss vocabulary parses — Attribute Build + SYSTEMIC FRICTION + [Cost]/[Gain]."""
+    lo = extract_loadout(BOSS_LOADOUT_MD)
+    names = [t["name"] for t in lo["combat_techniques"]]
+    assert any("Armour" in n for n in names)
+    assert any("Weapon" in n for n in names)
+    assert "Superstrength" in names
+    armour = next(t for t in lo["combat_techniques"] if "Armour" in t["name"])
+    assert armour["level"] == 8
+    assert "AR 40" in armour["name"]
+    assert "Reduces all incoming damage" in armour["effect"]
+    by_name = {d["name"]: d for d in lo["defects"]}
+    assert by_name["Nemesis (Tomoe Shirakane)"]["cp"] == 2
+    assert by_name["Vulnerability (Sacred Leyline Magic)"]["cp"] == 3
+    assert "double damage" in by_name["Vulnerability (Sacred Leyline Magic)"]["trigger"].lower()
+
+
+def test_loadout_explicit_shock():
+    lo = extract_loadout(ADVENTURER_LOADOUT_MD)
+    assert lo["shock_value"] == 12
+
+
+def test_loadout_missing_section_best_effort():
+    """A sheet with no loadout sections yields empty fields + a flag, never a crash."""
+    lo = extract_loadout(NO_SECTION_MD)
+    assert lo["combat_techniques"] == []
+    assert lo["skills"] == []
+    assert lo["defects"] == []
+    assert lo["shock_value"] is None
+
+
+def test_loadout_cite_stripped():
+    md = ADVENTURER_LOADOUT_MD + "\n" + ADVENTURER_LOADOUT_MD  # no-op; cites added below
+    md = "##### Combat Skills & Underbelly Payloads\n*   **Flash Veil:** Stuns all [cite: 42].\n"
+    lo = extract_loadout(md)
+    assert lo["combat_techniques"][0]["name"] == "Flash Veil"
+    assert "[cite" not in lo["combat_techniques"][0]["effect"]

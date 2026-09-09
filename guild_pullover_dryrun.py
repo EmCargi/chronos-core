@@ -107,6 +107,10 @@ def main() -> int:
     table.add_column("ACV/DCV")
     table.add_column("HP/EP")
     table.add_column("NS", justify="center")
+    table.add_column("Tech", justify="center")
+    table.add_column("Sk", justify="center")
+    table.add_column("Def", justify="center")
+    table.add_column("SV")
 
     for p in payloads:
         # Levers are an adventurer-only construct; bosses carry the Structural
@@ -114,6 +118,11 @@ def main() -> int:
         ns_ok = all(p.get(k) for k in ("structural_fault", "sixth_guard"))
         ns_tag = "[green]✓[/green]" if ns_ok else "[bold yellow]⚠[/bold yellow]"
         stats = f"{p['stat_body']}/{p['stat_mind']}/{p['stat_soul']}"
+        tech = len(p.get("combat_techniques", []))
+        sk = len(p.get("skills", []))
+        df = len(p.get("defects", []))
+        loadout_tag = f"[green]{tech}[/green]" if tech else "[bold yellow]0[/bold yellow]"
+        sv = p.get("shock_value") or "auto"
         table.add_row(
             p["name"],
             p["rank_label"],
@@ -123,6 +132,10 @@ def main() -> int:
             f"{p['acv']}/{p['dcv']}",
             f"{p['max_hp']}/{p['max_ep']}",
             ns_tag,
+            loadout_tag,
+            str(sk),
+            str(df),
+            str(sv),
         )
 
     console.print(table)
@@ -138,9 +151,22 @@ def main() -> int:
     if missing_ns:
         console.print(f"\n[bold yellow]Missing narrative syntax (⚠):[/bold yellow] {', '.join(missing_ns)}")
 
+    no_loadout = [p["name"] for p in payloads if not p.get("combat_techniques") and not p.get("skills") and not p.get("defects")]
+    if no_loadout:
+        console.print(f"\n[bold yellow]No loadout sections found (0/0/0):[/bold yellow] {', '.join(no_loadout)}")
+
+    flags = [f"{p['name']}: {', '.join(p.get('loadout_flags', []))}" for p in payloads if p.get("loadout_flags")]
+    if flags:
+        console.print(Panel(
+            "\n".join(f"[bold yellow]{f}[/bold yellow]" for f in flags),
+            title="[bold yellow]Loadout review flags[/bold yellow]",
+            border_style="yellow",
+        ))
+
     console.print(
         f"\n[bold green]Dry run complete.[/bold green] {len(payloads)} payloads ready, "
-        f"{len(errors)} unresolved, {len(missing_ns)} missing NS. No DB writes performed."
+        f"{len(errors)} unresolved, {len(missing_ns)} missing NS, "
+        f"{len(no_loadout)} with no loadout. No DB writes performed."
     )
     return 0
 

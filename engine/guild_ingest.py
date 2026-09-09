@@ -63,7 +63,7 @@ def discover_markdowns(base: str) -> list[str]:
 
 def _build_character(payload: dict) -> dict:
     """Shape an extractor payload into upsert_character's `character` dict."""
-    return {
+    char = {
         "name": payload["name"],
         "rank_label": payload["rank_label"],
         "race": payload["race"],
@@ -79,6 +79,14 @@ def _build_character(payload: dict) -> dict:
         "structural_fault": payload["structural_fault"],
         "levers": payload["levers"],
     }
+    # Loadout fields (from extract_loadout) ride through so the cast's BESM
+    # builds reach the roster columns — they were dropped in the original shape.
+    for key in ("combat_techniques", "skills", "defects"):
+        if payload.get(key):
+            char[key] = payload[key]
+    if payload.get("shock_value") is not None:
+        char["shock_value"] = payload["shock_value"]
+    return char
 
 
 def _checkpoint_db() -> str | None:
