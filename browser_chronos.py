@@ -137,7 +137,7 @@ if "initialized" not in st.session_state:
 st.sidebar.header("Chronos Core Configuration")
 
 # Model selector
-ACTIVE_MODEL = st.sidebar.text_input("Model", value=ACTIVE_MODEL or "gemma4-agentic-16k:latest")
+ACTIVE_MODEL = st.sidebar.text_input("Model", value=ACTIVE_MODEL or "hf.co/bartowski/TheDrummer_Cydonia-24B-v4.3-GGUF:Q4_K_M")
 THIN_MODEL = st.sidebar.text_input("Thin Model", value=THIN_MODEL or "deepseek-r1:7b")
 
 # Setting selector — CP-12: options derive from list_settings() (all registered

@@ -233,7 +233,7 @@ Configure in `config/settings.json`:
 
 ```json
 {
-  "ACTIVE_MODEL": "gemma4-agentic-16k:latest",
+  "ACTIVE_MODEL": "hf.co/bartowski/TheDrummer_Cydonia-24B-v4.3-GGUF:Q4_K_M",
   "THIN_MODEL": "deepseek-r1:7b",
   "DEFAULT_RULES": "besm_shell",
   "DEFAULT_SETTING": "guild_rpg"
