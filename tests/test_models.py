@@ -86,6 +86,27 @@ class TestDerivedVitals(unittest.TestCase):
         self.assertEqual(c.base_acv, 1)
         self.assertEqual(c.base_dcv, -1)
 
+    def test_explicit_max_hp_overrides_derivation(self):
+        """Stored roster maxima (with Tough/Energised bonuses) win over the
+        Tri-Stat formula — e.g. Morwen (3/4/7) stores 60, not the derived 50."""
+        c = CharacterSchema(name="Morwen", stat_body=3, stat_mind=4, stat_soul=7,
+                            max_hp=60, max_ep=105)
+        self.assertEqual(c.max_hp, 60)
+        self.assertEqual(c.max_ep, 105)
+
+    def test_zero_max_hp_falls_back_to_derivation(self):
+        """0 (and None) mean 'not provided' — derive from stats."""
+        c = CharacterSchema(name="Zero", stat_body=4, stat_mind=4, stat_soul=4,
+                            max_hp=0, max_ep=0)
+        self.assertEqual(c.max_hp, 40)
+        self.assertEqual(c.max_ep, 40)
+
+    def test_max_hp_in_model_dump(self):
+        """max_hp/max_ep are now real fields, so they serialize into model_dump
+        (previously read-only properties were excluded)."""
+        c = CharacterSchema(name="Guard", stat_body=4, stat_mind=3, stat_soul=3)
+        self.assertEqual(c.model_dump()["max_hp"], 35)
+
 
 class TestShockValue(unittest.TestCase):
     """Shock Value = max_hp // 5 + 10 × Hardboiled_level, capped at max_hp // 2."""

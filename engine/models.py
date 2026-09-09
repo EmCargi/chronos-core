@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict, Any, List
 import random
 
@@ -12,6 +12,10 @@ class CharacterSchema(BaseModel):
     stat_soul: int = Field(..., ge=1, le=12)
     current_hp: Optional[int] = None
     current_ep: Optional[int] = None
+    # Explicit max HP/EP from the roster row (carry Tough/Energised bonuses).
+    # When provided (non-zero), they win over the derivation formulas.
+    max_hp: Optional[int] = None
+    max_ep: Optional[int] = None
 
     # BESM rules fields — populated from roster DB at runtime
     shock_value: int = 0
@@ -20,13 +24,15 @@ class CharacterSchema(BaseModel):
     defects: List[Dict[str, Any]] = []
     spellbook: List[Dict[str, Any]] = []
 
-    @property
-    def max_hp(self) -> int:
-        return (self.stat_body + self.stat_soul) * 5
-
-    @property
-    def max_ep(self) -> int:
-        return (self.stat_mind + self.stat_soul) * 5
+    @model_validator(mode="after")
+    def _fill_derived_hp_ep(self):
+        """Fall back to the Tri-Stat derivation ONLY when the explicit value is
+        missing or zero — the stored roster row is authoritative when present."""
+        if not self.max_hp:
+            self.max_hp = (self.stat_body + self.stat_soul) * 5
+        if not self.max_ep:
+            self.max_ep = (self.stat_mind + self.stat_soul) * 5
+        return self
 
     @property
     def base_acv(self) -> int:

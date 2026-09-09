@@ -377,6 +377,30 @@ def test_loadout_skill_group_stat_map():
     assert any("skill-default-stat:Mystery" in f for f in lo["flags"])
 
 
+def test_skill_stat_source_grounded_map():
+    """BESM Extras 'Relevant Stat' grounding — official text pp.22-29."""
+    from engine.guild_pullover import _skill_stat
+    assert _skill_stat("Medical")[0] == "stat_mind"      # p26 Mind (sometimes Body)
+    assert _skill_stat("Military")[0] == "stat_mind"     # p27 Military Sciences: Mind
+    assert _skill_stat("Survival")[0] == "stat_mind"     # p29 Mind (sometimes Body)
+    assert _skill_stat("Street")[0] == "stat_mind"       # p29 Mind or Soul (Mind first)
+    assert _skill_stat("Social")[0] == "stat_mind"       # p29 Social Sciences: Mind
+    assert _skill_stat("Domestic")[0] == "stat_soul"     # p24 Mind or Soul (kept)
+    assert _skill_stat("Artisan")[0] == "stat_soul"      # p22 avg(Body+Soul) — pick
+    assert _skill_stat("Adventuring")[0] == "stat_body"  # Adventure Skills category
+
+
+def test_skill_stat_composite_split():
+    """Composite group labels match on any '/' component."""
+    from engine.guild_pullover import _skill_stat
+    assert _skill_stat("Social/Sacred")[0] == "stat_mind"
+    assert _skill_stat("Street/Survival")[0] == "stat_mind"
+    assert _skill_stat("Social/Pleading")[0] == "stat_mind"
+    # A genuinely novel group still defaults to Mind and is flagged
+    stat, used_default = _skill_stat("Mystery")
+    assert stat == "stat_mind" and used_default is True
+
+
 def test_loadout_defects_structured():
     lo = extract_loadout(ADVENTURER_LOADOUT_MD)
     by_name = {d["name"]: d for d in lo["defects"]}

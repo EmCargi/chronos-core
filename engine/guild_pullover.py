@@ -541,18 +541,47 @@ def extract_file(path: str) -> list[dict]:
 PASSIVE_STAT_EXCLUSIONS = ["tough", "energised"]
 
 # CP-3: Skill Groups don't name their governing stat on the sheet. Deterministic
-# keyword map; anything unmatched falls back to Mind and is flagged in the dry run.
+# keyword map grounded in BESM Extras' "Relevant Stat" (official text, pp.22-29);
+# anything unmatched falls back to Mind and is flagged in the dry run.
+#   Medical p26 "Mind (sometimes Body)" · Military Sciences p27 "Mind"
+#   Survival p29 "Mind (sometimes Body)" · Street Sense p29 "Mind or Soul"
+#   Social Sciences p29 "Mind" · Domestic Arts p24 "Mind or Soul"
+#   Artisan p22 "Average of Body and Soul" (single-stat pick: Soul)
+#   Adventuring = Adventure Skills category (mixed; physical default: Body)
 SKILL_STAT_MAP = {
+    "adventuring": "stat_body",
+    "medical": "stat_mind",
+    "military": "stat_mind",
+    "survival": "stat_mind",
+    "street": "stat_mind",
+    "social": "stat_mind",
     "domestic": "stat_soul",
+    "artisan": "stat_soul",
+    "sacred": "stat_soul",
+    "pleading": "stat_soul",
     "academic": "stat_mind",
+    "scientific": "stat_mind",
+    "business": "stat_mind",
     "athletic": "stat_body",
     "combat": "stat_body",
-    "social": "stat_soul",
-    "technical": "stat_mind",
-    "nature": "stat_soul",
     "craft": "stat_mind",
+    "technical": "stat_mind",
 }
 DEFAULT_SKILL_STAT = "stat_mind"
+
+
+def _skill_stat(group: str) -> tuple[str, bool]:
+    """Resolve a skill-group label to a stat via the source-grounded map.
+
+    Composite labels ("Social/Sacred", "Street/Survival") match on any
+    component. Returns (stat, used_default) — Mind-defaults are flagged for the
+    dry-run review so genuinely novel groups stay visible.
+    """
+    parts = [p.strip().lower() for p in re.split(r"[/+,&]", group) if p.strip()]
+    for part in parts:
+        if part in SKILL_STAT_MAP:
+            return SKILL_STAT_MAP[part], False
+    return DEFAULT_SKILL_STAT, True
 
 # Anchored to heading lines so prose false-positives ("123 CP with Defects",
 # "Attribute Build" mid-sentence) never start a section mid-file.
@@ -651,8 +680,8 @@ def extract_loadout(md_text: str) -> dict:
                 m = _SKILL_GROUP_RE.search(bold)
                 group = m.group(1).strip()
                 level, _ = _entry_level(bold, rest)
-                stat = SKILL_STAT_MAP.get(group.lower(), DEFAULT_SKILL_STAT)
-                if stat == DEFAULT_SKILL_STAT and group.lower() not in SKILL_STAT_MAP:
+                stat, used_default = _skill_stat(group)
+                if used_default:
                     flags.append(f"skill-default-stat:{group}")
                 skills.append({
                     "name": f"Skill Group ({group})",

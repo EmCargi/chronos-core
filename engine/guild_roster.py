@@ -1286,7 +1286,11 @@ def roster_dict_to_char(rc: dict) -> "CharacterSchema":
         stat_mind=rc["stat_mind"],
         stat_soul=rc["stat_soul"],
         current_hp=rc.get("max_hp"),
-        current_ep=rc.get("max_ep")
+        current_ep=rc.get("max_ep"),
+        # Explicit stored maxima win over the Tri-Stat derivation, so Tough /
+        # Energised bonuses survive runtime (bypasses the formula when provided).
+        max_hp=rc.get("max_hp"),
+        max_ep=rc.get("max_ep")
     )
     char.points_budget = rc.get("points_budget", 75)
     char.shock_value = rc.get("shock_value", char.max_hp // 5)

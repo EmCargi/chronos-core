@@ -222,6 +222,9 @@ _PHASE_B_CASES = [
 ]
 
 
+_SHOCK_OUTCOMES = ("SHOCKED", "UNCONSCIOUS", "below SV", "shock check PASSED")
+
+
 @pytest.mark.parametrize("cmd,needle", _PHASE_B_CASES)
 def test_phase_b_math_commands(app, cmd, needle):
     """/<math> computes deterministic BESM math locally — no exception, no LLM."""
@@ -229,8 +232,9 @@ def test_phase_b_math_commands(app, cmd, needle):
     assert not app.exception, [e.value for e in app.exception]
     joined = "\n".join(_all_markdown(app))
     if needle is None:
-        # /shock outcome depends on a random 2d6 roll vs Soul — accept any valid branch
-        assert any(k in joined for k in ("SHOCKED", "UNCONSCIOUS", "below SV")), f"{cmd} should render a shock outcome"
+        # /shock outcome depends on a random 2d6 roll vs Soul + the char's SV —
+        # accept any valid branch (incl. a passed shock check, not just a fail).
+        assert any(k in joined for k in _SHOCK_OUTCOMES), f"{cmd} should render a shock outcome"
     else:
         assert needle in joined, f"{cmd} should render '{needle}'"
 
@@ -240,7 +244,7 @@ def test_shock_roll_any_outcome(app):
     _send_command(app, "/shock 30")
     assert not app.exception, [e.value for e in app.exception]
     joined = "\n".join(_all_markdown(app))
-    assert any(k in joined for k in ("SHOCKED", "UNCONSCIOUS", "below SV"))
+    assert any(k in joined for k in _SHOCK_OUTCOMES)
 
 
 def test_phase_b_bad_args_get_usage(app):
