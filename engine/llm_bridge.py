@@ -3,9 +3,9 @@ import re
 import json
 import time
 import logging
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, Iterator
 from .config import ACTIVE_MODEL, DEFAULT_RULES, THIN_MODEL
-from core.ollama import default_chain, post_json
+from core.ollama import default_chain, post_json, stream_generate
 from core.reasoning import strip_reasoning_tags
 
 logger = logging.getLogger("ChronosCore.LLMBridge")
@@ -137,6 +137,72 @@ class LLMBridge:
                 "error": str(e),
                 "latency": latency,
             }
+
+    def dispatch_ollama_turn_stream(self, model_name: Optional[str], complete_context: str, user_input: str,
+                                    ctx: Optional[dict] = None) -> Iterator[str]:
+        """Stream one inference turn, yielding clean narrative prose chunks.
+
+        Yields ONLY clean prose. Everything the model emits — including the
+        trailing [MECHANICAL PAYLOAD] — accumulates into ``ctx["full_raw_text"]``
+        so the caller can still run ``inspect_llm_output`` on the FULL text
+        after streaming (CP-17).
+
+        Token-boundary safety (CP-16): Ollama streams one BPE token per frame,
+        so ``[ME`` + ``CHANICAL`` can arrive split across chunks. A trailing
+        holdback window keeps the last N chars un-yielded until the marker
+        prefix resolves. No reasoning-tag handling — the Director model
+        (Cydonia-24B) emits clean narrative prose, probe-verified 2026-09-08.
+        """
+        ctx = ctx if ctx is not None else {}
+        full = ctx.setdefault("full_raw_text", "")
+        model = model_name or ACTIVE_MODEL
+        chain = default_chain(model, THIN_MODEL)
+
+        payload_builder = lambda m: {
+            "model": m,
+            "prompt": complete_context + user_input,
+            "stream": True,
+            "options": {"temperature": 0.3, "num_predict": 1024},
+        }
+
+        # Holdback: keep the last N raw chars un-yielded so a split marker
+        # ("[ME" + "CHANICAL") can resolve before we commit.
+        HOLD = 20  # > len("[MECHANICAL PAYLOAD]") marker prefix
+        window = ""       # raw chars not yet committed to the UI
+        in_mechanical = False
+
+        try:
+            for frame in stream_generate("/api/generate", payload_builder, chain):
+                token = frame.get("response", "")
+                if not token:
+                    continue
+                full += token
+                window += token
+
+                # Mechanical tail: withhold from the marker onward, but KEEP
+                # consuming frames so ctx.full_raw_text captures the whole payload.
+                if not in_mechanical and "[mechanical" in window.lower():
+                    idx = window.lower().find("[mechanical")
+                    pre = window[:idx]
+                    if pre:
+                        yield pre
+                    window = ""
+                    in_mechanical = True
+                    continue
+
+                # Commit safe prose: yield everything except the last HOLD chars.
+                if not in_mechanical and len(window) > HOLD:
+                    safe, window = window[:-HOLD], window[-HOLD:]
+                    yield safe
+
+            # End of stream: flush residual prose.
+            if not in_mechanical and window:
+                yield window
+        except Exception as e:
+            logger.error(f"Streaming inference failed: {e}")
+            raise
+
+        ctx["full_raw_text"] = full
 
     def inspect_llm_output(self, raw_response: str) -> Tuple[str, dict]:
         """
