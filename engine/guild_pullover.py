@@ -541,13 +541,28 @@ def extract_file(path: str) -> list[dict]:
 PASSIVE_STAT_EXCLUSIONS = ["tough", "energised"]
 
 # CP-3: Skill Groups don't name their governing stat on the sheet. Deterministic
-# keyword map grounded in BESM Extras' "Relevant Stat" (official text, pp.22-29);
-# anything unmatched falls back to Mind and is flagged in the dry run.
-#   Medical p26 "Mind (sometimes Body)" · Military Sciences p27 "Mind"
-#   Survival p29 "Mind (sometimes Body)" · Street Sense p29 "Mind or Soul"
-#   Social Sciences p29 "Mind" · Domestic Arts p24 "Mind or Soul"
-#   Artisan p22 "Average of Body and Soul" (single-stat pick: Soul)
-#   Adventuring = Adventure Skills category (mixed; physical default: Body)
+# keyword map. Three provenance classes — book-grounded (single-stat pick from
+# the Extras individual-skill "Relevant Stat", verified against the PDF),
+# core-Skill-Group defaults (the core book gives groups no fixed stat — "Body,
+# Mind, or Soul" chosen at purchase; we default to the sensible stat), and
+# campaign-invented groups (no book basis; a house-rule stat). Anything
+# unmatched falls back to Mind and is flagged in the dry run.
+#
+# BOOK-GROUNDED (BESM Extras individual skills, printed pp.21-28):
+#   Artisan p21 "Average of Body and Soul" (pick: Soul)
+#   Business p21 "Mind"
+#   Domestic Arts p23 "Mind or Soul" (pick: Soul)
+#   Medical p25 "Mind (sometimes Body)" (pick: Mind)
+#   Military Sciences p26 "Mind"
+#   Social Sciences p28 "Mind"
+#   Street Sense p28 "Mind or Soul" (pick: Mind)
+#   Survival p28 "Mind (sometimes Body)" (pick: Mind)
+#
+# CORE SKILL GROUP DEFAULTS (no fixed stat in the book; campaign default):
+#   Academic/Technical/Scientific -> Mind · Adventuring -> Body
+#
+# CAMPAIGN-INVENTED (no book basis; house-rule stat):
+#   Athletic -> Body · Combat -> Body · Craft -> Mind · Pleading -> Soul · Sacred -> Soul
 SKILL_STAT_MAP = {
     "adventuring": "stat_body",
     "medical": "stat_mind",
@@ -571,7 +586,7 @@ DEFAULT_SKILL_STAT = "stat_mind"
 
 
 def _skill_stat(group: str) -> tuple[str, bool]:
-    """Resolve a skill-group label to a stat via the source-grounded map.
+    """Resolve a skill-group label to a stat via the provenance-classified map.
 
     Composite labels ("Social/Sacred", "Street/Survival") match on any
     component. Returns (stat, used_default) — Mind-defaults are flagged for the
