@@ -1,5 +1,7 @@
 import os
+import re
 import json
+import uuid
 import logging
 import sqlite3
 from datetime import datetime
@@ -155,7 +157,8 @@ SEED_CATALOG = [
 ]
 
 # SxM1 (shota_x_monsters) economy seed: all 63 items with BESM-grounded Gold prices.
-from .sxm1_economy_catalog import SEED_CATALOG_SXM1
+from .sxm1_economy_catalog import SEED_CATALOG_SXM1, GOLD_PER_CP
+from .models import ChestLootSchema, ChestEffect
 
 def set_active_roster_path(path: str) -> None:
     """Redirect all subsequent economy DB access to `path` (tests / isolated web).
@@ -200,6 +203,12 @@ def init_economy_db() -> None:
         # Migration for existing roster DBs that predate the currency column.
         try:
             conn.execute("ALTER TABLE items ADD COLUMN currency TEXT NOT NULL DEFAULT 'silver'")
+        except sqlite3.OperationalError:
+            pass  # column already present
+        # Migration for the generative chest-loot flag (CP: loot_only — hides
+        # generated rows from /shop while keeping them in player inventories).
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN loot_only INTEGER NOT NULL DEFAULT 0")
         except sqlite3.OperationalError:
             pass  # column already present
         conn.execute("""
@@ -334,16 +343,20 @@ def get_item(setting_id: str, item_id: str) -> dict | None:
         return item
 
 def list_catalog(setting_id: str, rank_filter: str | None = None) -> list:
-    """Lists a setting's item catalog, optionally filtered by rank tier."""
+    """Lists a setting's item catalog, optionally filtered by rank tier.
+
+    Excludes generative `loot_only` rows (CP: loot_only) so /shop stays canonical;
+    get_item / get_inventory remain unfiltered so players keep their own loot."""
     with get_economy_connection() as conn:
+        base = "SELECT * FROM items WHERE setting_id = ? AND COALESCE(loot_only, 0) = 0"
         if rank_filter:
             rows = conn.execute(
-                "SELECT * FROM items WHERE setting_id = ? AND rank_label LIKE ? ORDER BY rank_label, name",
+                base + " AND rank_label LIKE ? ORDER BY rank_label, name",
                 (setting_id, f"%{rank_filter.upper()}%")
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM items WHERE setting_id = ? ORDER BY rank_label, name", (setting_id,)
+                base + " ORDER BY rank_label, name", (setting_id,)
             ).fetchall()
         result = []
         for r in rows:
@@ -548,3 +561,147 @@ def use_item(setting_id: str, character_name: str, item_id: str,
     if kind == "blind":
         return True, f"Used {item['name']}. Blinded the target group for {effect.get('duration_rounds', 1)} round(s)."
     return True, f"Used {item['name']}. ({'Restored ' + str(delta) + ' vitals.' if delta else 'Effect applied.'})"
+
+# ── Generative chest loot (The Pydantic Weaver) ────────────────────────────
+# The LLM emits ONLY name/item_type/description/item_cp/effect_json inside a
+# [LOOT PAYLOAD] block. Python fills the schema gaps, prices with the existing
+# curves, and deposits into the canonical items + character_items tables in a
+# single transaction (CP-2). Zero LLM math.
+
+CHEST_TIER_CAPS = {"wooden": 3, "gold": 6, "platinum": 10}
+CHEST_STRATUM_CP_STEP = 2
+GOLD_CATEGORY_MULT = {"consumable": 1, "gear": 2, "valuable": 1}
+
+def loot_cap_for(chest_tier: str, stratum: int = 1) -> int:
+    """CP cap for a chest: tier base +2 CP per stratum past 1 (Arbiter ruling #1)."""
+    base = CHEST_TIER_CAPS.get(chest_tier, CHEST_TIER_CAPS["wooden"])
+    return base + CHEST_STRATUM_CP_STEP * max(0, (stratum or 1) - 1)
+
+def gold_price(item_cp: int, category_mult: float = 1) -> int:
+    """SxM1 Gold model (validated peddler baseline): 50 * CP * category_mult."""
+    return GOLD_PER_CP * item_cp * category_mult
+
+def currency_for_setting(setting_id: str) -> str:
+    """Per-setting currency: shota_x_monsters runs Gold, everything else silver."""
+    return "gold" if setting_id == "shota_x_monsters" else "silver"
+
+def rank_label_for_cp(item_cp: int) -> str:
+    """CP → quest-rank ladder for generated items (CP-4: distinct from
+    besm_catalog.rank_for_cp, which is silver-price-based)."""
+    if item_cp <= 2:
+        return "D"
+    if item_cp <= 4:
+        return "C"
+    if item_cp <= 7:
+        return "B"
+    if item_cp <= 12:
+        return "A"
+    return "S"
+
+def _slugify(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    return slug[:40] or "mystery"
+
+def _runnable_effect(effect) -> bool:
+    """Cross-rule: a consumable effect must carry its required sub-fields so the
+    item is genuinely actionable (no `{"kind":"heal"}` zero-heal rows)."""
+    if not isinstance(effect, ChestEffect):
+        return False
+    kind = effect.kind
+    if kind == "heal":
+        return bool(effect.hp)
+    if kind == "ep":
+        return bool(effect.ep)
+    if kind == "cure":
+        return bool(effect.status)
+    if kind == "repel_animals":
+        return bool(effect.area)
+    if kind == "blind":
+        return bool(effect.targets)
+    return False
+
+def parse_chest_loot(raw_text: str, chest_tier: str, stratum: int = 1) -> ChestLootSchema:
+    """Regex-extract [LOOT PAYLOAD] → Pydantic validate → cap re-check + cross-rules.
+
+    Raises ValueError on any violation so the caller can fall back to a filler."""
+    m = re.search(r"\[LOOT PAYLOAD\](.*?)\[/LOOT PAYLOAD\]", raw_text, re.S | re.I)
+    if not m:
+        raise ValueError("no [LOOT PAYLOAD] block in response")
+    payload = m.group(1).strip().strip("`").strip()
+    item = ChestLootSchema.model_validate_json(payload)
+    cap = loot_cap_for(chest_tier, stratum)
+    if not (1 <= item.item_cp <= cap):
+        raise ValueError(f"item_cp {item.item_cp} outside chest cap 1..{cap}")
+    if item.item_type == "consumable":
+        if not _runnable_effect(item.effect_json):
+            raise ValueError("consumable must carry a runnable effect with its sub-fields")
+    else:
+        if isinstance(item.effect_json, ChestEffect):
+            raise ValueError("gear/valuable items cannot carry a consumable effect")
+    return item
+
+def deposit_chest_loot(setting_id: str, character_name: str, item: ChestLootSchema,
+                       stratum: int = 1) -> str:
+    """Fills the schema gaps, prices, and commits the item + inventory deposit
+    in ONE transaction (CP-2) so no orphan item row survives a failed deposit."""
+    slug = _slugify(item.name)
+    item_id = f"chest_{slug}_{uuid.uuid4().hex[:4]}"
+    rank = rank_label_for_cp(item.item_cp)
+    currency = currency_for_setting(setting_id)
+
+    if item.item_type == "consumable":
+        price_class = "consumable"
+        if currency == "gold":
+            price = gold_price(item.item_cp, GOLD_CATEGORY_MULT["consumable"])
+        else:
+            lo, hi = bracket_for_rank(rank)
+            price = (lo + hi) // 2 if lo is not None else 25
+        effect_json = item.effect_json.model_dump() if isinstance(item.effect_json, ChestEffect) else {}
+    elif item.item_type == "gear":
+        price_class = "permanent"
+        price = (gold_price(item.item_cp, GOLD_CATEGORY_MULT["gear"])
+                 if currency == "gold" else fibonacci_price(item.item_cp))
+        effect_json = {}
+    else:
+        price_class = "priceless"
+        price = None
+        effect_json = {}
+
+    with get_economy_connection() as conn:
+        conn.execute("""
+            INSERT INTO items (
+                setting_id, item_id, name, item_type, rank_label,
+                besm_points, item_cp, price_class, price_silver,
+                effect_json, description, currency, loot_only
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            ON CONFLICT(setting_id, item_id) DO UPDATE SET
+                name = excluded.name,
+                item_type = excluded.item_type,
+                rank_label = excluded.rank_label,
+                besm_points = excluded.besm_points,
+                item_cp = excluded.item_cp,
+                price_class = excluded.price_class,
+                price_silver = excluded.price_silver,
+                effect_json = excluded.effect_json,
+                description = excluded.description,
+                currency = excluded.currency,
+                loot_only = excluded.loot_only
+        """, (
+            setting_id, item_id, item.name, item.item_type, rank,
+            item.item_cp * 2, item.item_cp, price_class, price,
+            json.dumps(effect_json), item.description, currency
+        ))
+        conn.execute("""
+            INSERT INTO character_items (setting_id, character_name, item_id, qty, acquired_at)
+            VALUES (?, ?, ?, 1, ?)
+            ON CONFLICT(setting_id, character_name, item_id) DO UPDATE SET
+                qty = qty + excluded.qty
+        """, (setting_id, character_name, item_id, datetime.now().isoformat()))
+    logger.info(f"Chest loot '{item.name}' ({item_id}) deposited to [{setting_id}] {character_name}.")
+    return item_id
+
+def generate_chest_loot(setting_id: str, character_name: str, chest_tier: str,
+                        stratum: int = 1, raw_text: str = "") -> str:
+    """Full pipeline: parse the LLM's [LOOT PAYLOAD] and deposit the item."""
+    item = parse_chest_loot(raw_text, chest_tier, stratum)
+    return deposit_chest_loot(setting_id, character_name, item, stratum)

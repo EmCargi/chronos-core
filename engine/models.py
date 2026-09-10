@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union, Literal
 import random
 
 class CharacterSchema(BaseModel):
@@ -56,6 +56,30 @@ class NodeSchema(BaseModel):
     description: str
     exits: Dict[str, str]
     required_check: Optional[Dict[str, Any]] = None
+    node_type: Optional[str] = None
+    stratum: Optional[int] = None
+    chest: Optional[Dict[str, Any]] = None
+
+# ── generative chest loot contract ────────────────────────────────────────
+# The five runnable engine effects (use_item allowlist in economy.py). Sub-fields
+# mirror the seed-catalog shapes so a generated item is immediately consumable.
+
+class ChestEffect(BaseModel):
+    kind: Literal["heal", "ep", "cure", "repel_animals", "blind"]
+    level: int = 1
+    hp: Optional[int] = None       # heal
+    ep: Optional[int] = None       # ep
+    status: Optional[str] = None   # cure
+    area: Optional[str] = None     # repel_animals
+    targets: Optional[str] = None  # blind
+    duration_rounds: Optional[int] = None
+
+class ChestLootSchema(BaseModel):
+    name: str
+    item_type: Literal["consumable", "gear", "valuable"]
+    description: str = ""
+    item_cp: int
+    effect_json: Union[ChestEffect, dict] = {}
 
 def execute_action_check(stat_rank: int, skill_rank: int, difficulty_value: int) -> dict:
     """

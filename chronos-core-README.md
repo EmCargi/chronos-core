@@ -202,6 +202,7 @@ venv/bin/python chronos.py     # Rich TUI with full command palette
 | `examine` | LLM narrative description of the current node |
 | `/attack` | Resolve a combat/obstacle check vs. the active node |
 | `/loot` | LLM-synthesize an ephemeral item into the session ledger |
+| `/open` | Open a labyrinth chest — generative, Pydantic-validated loot priced + deposited into the canonical economy (`loot_only`, hidden from `/shop`) |
 | `/settings` | List all registered settings |
 | `/setting <id>` | Switch active setting |
 | `/module <name>` | Switch campaign module within the active setting |

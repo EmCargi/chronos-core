@@ -132,6 +132,15 @@ def initialize_session_db(db_path: str) -> None:
                 raw_modifiers TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS opened_chests (
+                session_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                item_id TEXT NOT NULL DEFAULT '',
+                opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (session_id, node_id)
+            )
+        """)
     logger.info(f"Session database initialized at {db_path} with structural tables.")
 
 def init_db() -> None:
@@ -379,6 +388,34 @@ def log_narrative_turn(session_id: str, speaker: str, text_payload: str) -> None
             VALUES (?, ?, ?)
         """, (session_id, speaker, text_payload))
     logger.info(f"Narrative turn logged: {speaker} -> {text_payload[:50]}...")
+
+def mark_chest_opened(session_id: str, node_id: str, item_id: str = "") -> None:
+    """Records a chest as opened for the session. Idempotent (PK on
+    session_id+node_id). Written BEFORE the LLM dispatch begins (CP-1) so a
+    Streamlit double-click can't double-generate; callers roll back via
+    unmark_chest_opened() when the dispatch fails."""
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO opened_chests (session_id, node_id, item_id) VALUES (?, ?, ?)",
+            (session_id, node_id, item_id)
+        )
+
+def unmark_chest_opened(session_id: str, node_id: str) -> None:
+    """Rolls back a pre-dispatch open lock when generation failed."""
+    with get_db_connection() as conn:
+        conn.execute(
+            "DELETE FROM opened_chests WHERE session_id = ? AND node_id = ?",
+            (session_id, node_id)
+        )
+
+def is_chest_opened(session_id: str, node_id: str) -> bool:
+    """True if the chest was already opened this session."""
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM opened_chests WHERE session_id = ? AND node_id = ?",
+            (session_id, node_id)
+        ).fetchone()
+        return row is not None
 
 def add_loot_to_inventory(session_id: str, item_data: dict) -> str:
     """

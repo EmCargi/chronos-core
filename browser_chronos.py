@@ -45,6 +45,8 @@ from engine import (
     buy_item, inventory_summary, use_item,
     seed_besm_catalog, besm_catalog_summary, besm_catalog_matches,
     get_scene_effects, tick_scene_effects, run_auto_ingest,
+    mark_chest_opened, unmark_chest_opened, is_chest_opened,
+    parse_chest_loot, deposit_chest_loot, loot_cap_for,
     LLMBridge, ACTIVE_MODEL, THIN_MODEL, DEFAULT_RULES, DEFAULT_SETTING,
 )
 from engine.guild_roster import (
@@ -110,7 +112,11 @@ if "initialized" not in st.session_state:
     st.session_state.initialized = True
     # Redirect ALL session-DB access to the web port's own DB (CP-2) so the
     # CLI's chronos_session.db is never touched. Must be set before init_db().
-    set_active_db_path(WEB_SESSION_DB_PATH)
+    # Honor an external redirect (test harness / CHRONOS_DB_PATH env): only
+    # force the web path when still on a default path.
+    from engine.state_manager import ACTIVE_DB_PATH, DB_PATH
+    if ACTIVE_DB_PATH in (DB_PATH, WEB_SESSION_DB_PATH):
+        set_active_db_path(WEB_SESSION_DB_PATH)
     init_state_db()
     # Load default setting (Guild RPG) and bind home hub
     st.session_state.setting_id = DEFAULT_SETTING or "guild_rpg"
@@ -249,6 +255,7 @@ if player_input:
             "/maneuver <subcommand>", "/effects",
             "/roster", "/lore", "/settings", "/shop", "/wallet",
             "/inventory", "/loadout", "/greetings", "/location", "/threat",
+            "/open",
         ]:
             nh.append(f"  [dim]{c}[/dim]")
         handled = True
@@ -1175,6 +1182,75 @@ if player_input:
                 nh.append("[bold yellow]AI Director (Offline Fallback):[/bold yellow] You discover a discarded Rust Vibroblade (+1 BODY)!")
         except Exception:
             nh.append("[bold red]System Error:[/bold red] Loot extraction failed.")
+        handled = True
+
+    elif cmd_lower == "/open":
+        chest = active_node.chest if hasattr(active_node, "chest") else None
+        chest_tier = chest.get("tier") if isinstance(chest, dict) else None
+        if not chest_tier:
+            nh.append("[bold yellow]System:[/bold yellow] There is nothing to open here.")
+        elif is_chest_opened(WEB_SESSION_ID, active_node.node_id):
+            nh.append("[bold yellow]System:[/bold yellow] This chest has already been opened.")
+        else:
+            nh.append("[bold blue]Player:[/bold blue] Opening the chest...")
+            # CP-1: lock BEFORE the ~10s dispatch so a Streamlit double-trigger
+            # can't double-generate; roll back on any failure.
+            mark_chest_opened(WEB_SESSION_ID, active_node.node_id)
+            stratum = getattr(active_node, "stratum", None) or 1
+            cap = loot_cap_for(chest_tier, stratum)
+            vitals = {
+                "name": char.name,
+                "stat_body": char.stat_body,
+                "stat_mind": char.stat_mind,
+                "stat_soul": char.stat_soul,
+                "combat_techniques": char.combat_techniques,
+                "skills": char.skills,
+                "defects": char.defects,
+                "shock_value": char.shock_value,
+                "max_hp": char.max_hp,
+                "max_ep": char.max_ep,
+                "active_node": {"title": active_node.title, "node_id": active_node.node_id},
+                "description": active_node.description or "",
+            }
+            try:
+                from engine.llm_bridge import LLMBridge
+                bridge = LLMBridge()
+                node_ctx = {
+                    "title": active_node.title,
+                    "node_id": active_node.node_id,
+                    "node_title": active_node.title,
+                    "chest_tier": chest_tier,
+                    "stratum": stratum,
+                    "loot_cap": cap,
+                }
+                compiled_prompt = bridge.compile_system_frame("loot_weaver", vitals, node_ctx)
+                ctx = {}
+                prose = ""
+                try:
+                    with st.chat_message("AI Director"):
+                        prose = st.write_stream(bridge.dispatch_ollama_turn_stream(
+                            model_name=ACTIVE_MODEL,
+                            complete_context=compiled_prompt,
+                            user_input="Player opens the chest.",
+                            ctx=ctx,
+                        ))
+                except Exception:
+                    prose = ""
+                if prose:
+                    try:
+                        item = parse_chest_loot(ctx["full_raw_text"], chest_tier, stratum)
+                        item_id = deposit_chest_loot(setting_id, char_name, item, stratum)
+                        nh.append(f"[bold yellow]AI Director:[/bold yellow] {prose}")
+                        nh.append(f"[bold green]Chest Opened:[/bold green] [bold white]{item.name}[/bold white] ({item.item_type}, {item.item_cp} CP) added to inventory. [[dim]{item_id}[/dim]]")
+                    except ValueError as e:
+                        unmark_chest_opened(WEB_SESSION_ID, active_node.node_id)
+                        nh.append("[bold red]System Error:[/bold red] The chest's contents refuse to materialize.")
+                else:
+                    unmark_chest_opened(WEB_SESSION_ID, active_node.node_id)
+                    nh.append("[bold red]System Error:[/bold red] The chest creaks shut — the weave failed.")
+            except Exception:
+                unmark_chest_opened(WEB_SESSION_ID, active_node.node_id)
+                nh.append("[bold red]System Error:[/bold red] Chest open failed.")
         handled = True
 
     # ── Director fallback: free text + examine → LLM (unchanged) ──────────

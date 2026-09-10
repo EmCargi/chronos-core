@@ -1,5 +1,5 @@
 from .models import (
-    CharacterSchema, NodeSchema,
+    CharacterSchema, NodeSchema, ChestLootSchema, ChestEffect,
     execute_action_check, check_shock, check_incapacitation,
     check_poison_resistance, check_sanity, check_catastrophic_damage,
     resolve_combat_roll, resolve_attack_damage, character_scv,
@@ -28,6 +28,9 @@ from .state_manager import (
     get_scene_effects,
     apply_scene_effect,
     tick_scene_effects,
+    mark_chest_opened,
+    unmark_chest_opened,
+    is_chest_opened,
     DB_PATH
 )
 from .economy import (
@@ -43,6 +46,13 @@ from .economy import (
     use_item,
     fibonacci_price,
     add_item,
+    gold_price,
+    currency_for_setting,
+    rank_label_for_cp,
+    loot_cap_for,
+    parse_chest_loot,
+    deposit_chest_loot,
+    generate_chest_loot,
 )
 from .besm_catalog import BESM_CATALOG, SOURCES, rank_for_cp, seed_besm_catalog, besm_catalog_summary, besm_catalog_matches
 from .llm_bridge import LLMBridge

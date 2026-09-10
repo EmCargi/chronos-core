@@ -515,3 +515,70 @@ def test_loot_empty_stream_offline_fallback(app, monkeypatch):
     history = "\n".join(_all_history(app))
     assert "Offline Fallback" in history
     assert "Rust Vibroblade" in history
+
+
+# ── /open generative chest loot (The Pydantic Weaver) ──────────────────────
+
+def _inject_chest_node(app):
+    """Point the loaded module at a synthetic labyrinth with a wooden chest."""
+    chest_map = {
+        "node_start": {"node_id": "node_start", "title": "Entrance", "description": "A gate.",
+                       "node_type": "entrance", "stratum": 1, "exits": {"north": "node_chest"}},
+        "node_chest": {"node_id": "node_chest", "title": "Wooden Chest", "description": "A weathered chest.",
+                       "node_type": "chest", "stratum": 1, "chest": {"tier": "wooden"}, "exits": {}},
+    }
+    app.session_state["story_map"] = chest_map
+    app.session_state["last_setting_id"] = app.session_state["setting_id"]
+    app.session_state["active_node_id"] = "node_chest"
+    app.run()
+
+
+def test_open_without_chest_node(app):
+    """/open on a chest-less node replies 'nothing to open' (no LLM, no write)."""
+    _send_command(app, "/open")
+    assert not app.exception, [e.value for e in app.exception]
+    assert "There is nothing to open here." in "\n".join(_all_history(app))
+
+
+def test_open_streams_chest_loot(app, monkeypatch):
+    """/open streams the find + deposits the Pydantic-validated item."""
+    _inject_chest_node(app)
+    _patch_stream(monkeypatch, prose="Inside sits a single crimson vial. ",
+                  mech_tail='[LOOT PAYLOAD] {"name":"Woodland Berry Tonic","item_type":"consumable",'
+                            '"description":"A tart tonic.","item_cp":2,"effect_json":{"kind":"heal","hp":10}} '
+                            '[/LOOT PAYLOAD]')
+    _send_command(app, "/open")
+    assert not app.exception, [e.value for e in app.exception]
+    history = "\n".join(_all_history(app))
+    assert "Chest Opened" in history
+    assert "Woodland Berry Tonic" in history
+
+
+def test_open_twice_idempotent(app, monkeypatch):
+    """CP-1: the pre-dispatch lock blocks a second open (no double-drop)."""
+    _inject_chest_node(app)
+    _patch_stream(monkeypatch, prose="Inside sits a single crimson vial. ",
+                  mech_tail='[LOOT PAYLOAD] {"name":"Woodland Berry Tonic","item_type":"consumable",'
+                            '"description":"A tart tonic.","item_cp":2,"effect_json":{"kind":"heal","hp":10}} '
+                            '[/LOOT PAYLOAD]')
+    _send_command(app, "/open")
+    _send_command(app, "/open")
+    assert not app.exception, [e.value for e in app.exception]
+    history = "\n".join(_all_history(app))
+    assert history.count("Chest Opened") == 1
+    assert "already been opened" in history
+
+
+def test_open_empty_stream_rolls_back(app, monkeypatch):
+    """A failed stream rolls back the open lock so the player can retry."""
+    _inject_chest_node(app)
+    _patch_stream(monkeypatch)
+    _send_command(app, "/open")
+    assert not app.exception, [e.value for e in app.exception]
+    assert "creaks shut" in "\n".join(_all_history(app))
+    _patch_stream(monkeypatch, prose="This time it works. ",
+                  mech_tail='[LOOT PAYLOAD] {"name":"Retry Tonic","item_type":"consumable",'
+                            '"description":"d.","item_cp":1,"effect_json":{"kind":"heal","hp":5}} '
+                            '[/LOOT PAYLOAD]')
+    _send_command(app, "/open")
+    assert "Retry Tonic" in "\n".join(_all_history(app))

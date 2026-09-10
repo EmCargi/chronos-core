@@ -61,6 +61,12 @@ from engine import (
     besm_catalog_matches,
     get_scene_effects,
     tick_scene_effects,
+    mark_chest_opened,
+    unmark_chest_opened,
+    is_chest_opened,
+    parse_chest_loot,
+    deposit_chest_loot,
+    loot_cap_for,
     compute_tcr,
     resolve_diceless_combat,
     hedged_check,
@@ -324,7 +330,7 @@ def main():
             
             # Temporarily pause live display to allow clean console stdin prompts
             live.stop()
-            console.print("[bold cyan]COMMANDS:[/bold cyan] [white]exit | examine | north | south | east | west | /attack | /loot | /roster | /settings | /setting <id> | /module <name> | /char <name> | /org <name> | /orgs | /shop | /buy <item_id> | /wallet | /grant <silver> | /inventory | /loadout | /greetings | /startgreeting <n> | /use <item_id> | /effects | /provision [info] [filters] | /diceless | /maneuver | auto-ingest[/white]")
+            console.print("[bold cyan]COMMANDS:[/bold cyan] [white]exit | examine | north | south | east | west | /attack | /loot | /open | /roster | /settings | /setting <id> | /module <name> | /char <name> | /org <name> | /orgs | /shop | /buy <item_id> | /wallet | /grant <silver> | /inventory | /loadout | /greetings | /startgreeting <n> | /use <item_id> | /effects | /provision [info] [filters] | /diceless | /maneuver | auto-ingest[/white]")
             try:
                 player_input = console.input("[bold magenta]Select action > [/bold magenta]").strip()
             except (KeyboardInterrupt, EOFError):
@@ -698,6 +704,7 @@ def main():
                     "/recover", "/techniques", "/defects",
                     "/diceless <defender_cv> [AR] [extra_def] [edge]", "/diceless hedge <target> [stat]",
                     "/maneuver <subcommand>", "/effects",
+                    "/open",
                 ]
                 for c in cmds:
                     narrative_history.append(f"  [dim]{c}[/dim]")
@@ -1290,6 +1297,53 @@ def main():
                 except Exception as e:
                     logger.error(f"Loot synthesis failure: {e}")
                     narrative_history.append("[bold red]System Error:[/bold red] Loot extraction failed.")
+
+            # Action: /open (Generative chest loot — The Pydantic Weaver)
+            elif player_input == "/open":
+                chest = getattr(active_node, "chest", None) or {}
+                chest_tier = chest.get("tier") if isinstance(chest, dict) else None
+                if not chest_tier:
+                    narrative_history.append("[bold yellow]System:[/bold yellow] There is nothing to open here.")
+                elif is_chest_opened(session_id, active_node.node_id):
+                    narrative_history.append("[bold yellow]System:[/bold yellow] This chest has already been opened.")
+                else:
+                    narrative_history.append("[bold blue]Player:[/bold blue] Opening the chest...")
+                    # CP-1: lock BEFORE the ~10s dispatch so a double-trigger can't
+                    # double-generate; roll back on any failure.
+                    mark_chest_opened(session_id, active_node.node_id)
+                    stratum = active_node.stratum or 1
+                    cap = loot_cap_for(chest_tier, stratum)
+                    try:
+                        vitals = build_vitals_with_full_loadout(active_setting_id, char, active_org)
+                        node_ctx = node_dict.copy()
+                        node_ctx["node_title"] = active_node.title
+                        node_ctx["chest_tier"] = chest_tier
+                        node_ctx["stratum"] = stratum
+                        node_ctx["loot_cap"] = cap
+                        compiled_prompt = bridge.compile_system_frame("loot_weaver", vitals, node_ctx)
+                        response_dict = bridge.dispatch_ollama_turn(
+                            model_name=ACTIVE_MODEL,
+                            complete_context=compiled_prompt,
+                            user_input="Player opens the chest."
+                        )
+                        if response_dict.get("success"):
+                            raw = response_dict["response"]
+                            item = parse_chest_loot(raw, chest_tier, stratum)
+                            item_id = deposit_chest_loot(active_setting_id, char.name, item, stratum)
+                            prose = raw.split("[LOOT PAYLOAD]")[0].strip()
+                            narrative_history.append(f"[bold yellow]AI Director:[/bold yellow] {prose}")
+                            narrative_history.append(f"[bold green]Chest Opened:[/bold green] [bold white]{item.name}[/bold white] ({item.item_type}, {item.item_cp} CP) added to inventory. [[dim]{item_id}[/dim]]")
+                        else:
+                            unmark_chest_opened(session_id, active_node.node_id)
+                            narrative_history.append("[bold red]System Error:[/bold red] The chest creaks shut — the weave failed.")
+                    except ValueError as e:
+                        unmark_chest_opened(session_id, active_node.node_id)
+                        logger.error(f"Chest loot parse rejected: {e}")
+                        narrative_history.append("[bold red]System Error:[/bold red] The chest's contents refuse to materialize.")
+                    except Exception as e:
+                        unmark_chest_opened(session_id, active_node.node_id)
+                        logger.error(f"Chest open failure: {e}")
+                        narrative_history.append("[bold red]System Error:[/bold red] Chest open failed.")
 
             # Action: EXAMINE (invokes Ollama LLM Bridge with fallback)
             elif player_input.lower() == "examine":
