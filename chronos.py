@@ -434,7 +434,7 @@ def main():
             elif player_input.lower().startswith("/module"):
                 parts = player_input.split()
                 if len(parts) < 2:
-                    narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /module <module_filename.json> (e.g. forest_labyrinth_v1.json).")
+                    narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /module <module_filename.json> (e.g. forest_labyrinth_stratum1.json).")
                 else:
                     target = parts[1]
                     STORY_MAP, active_module_name = load_campaign_module(active_setting_id, target)

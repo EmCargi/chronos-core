@@ -324,7 +324,7 @@ if player_input:
     elif cmd_lower.startswith("/module"):
         parts = cmd.split()
         if len(parts) < 2:
-            nh.append("[bold yellow]System:[/bold yellow] Usage: /module <module_filename.json> (e.g. forest_labyrinth_v1.json).")
+            nh.append("[bold yellow]System:[/bold yellow] Usage: /module <module_filename.json> (e.g. forest_labyrinth_stratum1.json).")
         else:
             target = parts[1]
             new_map, new_module = load_campaign_module(setting_id, target)

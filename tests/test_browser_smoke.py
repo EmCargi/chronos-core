@@ -390,7 +390,7 @@ def test_setting_unknown(app):
 
 def test_module_loads_and_resets_node(app):
     """/module swaps the story map and resets the active node to map[0]."""
-    _send_command(app, "/module sandbox_75cp.json")
+    _send_command(app, "/module zarlen_training_grounds_v1.json")
     assert not app.exception, [e.value for e in app.exception]
     joined = "\n".join(_all_markdown(app))
     assert "Loaded module" in joined

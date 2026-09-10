@@ -507,9 +507,9 @@ def seed_shota_presets() -> None:
     presets so the setting has a live roster to expand later. Idempotent.
     """
     import json as _json
-    module_path = os.path.join(BASE_DIR, "modules", "forest_labyrinth_v1.json")
+    module_path = os.path.join(BASE_DIR, "modules", "forest_labyrinth_stratum1.json")
     if not os.path.exists(module_path):
-        logger.warning("forest_labyrinth_v1.json not found; skipping SxM preset seeding.")
+        logger.warning("forest_labyrinth_stratum1.json not found; skipping SxM preset seeding.")
         return
     with open(module_path, "r", encoding="utf-8") as f:
         module_data = _json.load(f)

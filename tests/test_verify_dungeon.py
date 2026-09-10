@@ -21,9 +21,9 @@ class TestValidModules(unittest.TestCase):
             verify_dungeon_structure(str(MODULES_DIR / "five_room_dungeon_v1.json")),
         )
 
-    def test_forest_labyrinth_v1_passes(self):
+    def test_forest_labyrinth_stratum1_passes(self):
         self.assertTrue(
-            verify_dungeon_structure(str(MODULES_DIR / "forest_labyrinth_v1.json")),
+            verify_dungeon_structure(str(MODULES_DIR / "forest_labyrinth_stratum1.json")),
         )
 
     def test_c_rank_trial_passes(self):
