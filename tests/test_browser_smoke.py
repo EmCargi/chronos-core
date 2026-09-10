@@ -233,6 +233,13 @@ _SHOCK_OUTCOMES = ("SHOCKED", "UNCONSCIOUS", "below SV", "shock check PASSED")
 def test_phase_b_math_commands(app, cmd, needle):
     """/<math> computes deterministic BESM math locally — no exception, no LLM."""
     _send_command(app, cmd)
+    if cmd == "/attack":
+        # Default module (zarlen_training_grounds) boots onto node_01_guardian
+        # which HAS a required_check. Navigate to an obstacle-free node first so
+        # the /attack no-obstacle branch is what renders.
+        app.session_state["active_node_id"] = "node_05_reward"
+        app.run()
+        _send_command(app, cmd)
     assert not app.exception, [e.value for e in app.exception]
     joined = "\n".join(_all_markdown(app))
     if needle is None:
