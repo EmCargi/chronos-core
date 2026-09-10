@@ -280,11 +280,15 @@ class TestInventoryOperations(EconomyDBTestCase):
 
 
 class SceneEffectTestCase(EconomyDBTestCase):
-    """Base for scene-effect tests: also points state_manager at the tmp session DB."""
+    """Base for scene-effect tests: points state_manager at the tmp session DB.
+
+    Patches ACTIVE_DB_PATH (the value get_db_connection/apply_scene_effect
+    actually read) — patching DB_PATH was a silent no-op that made these tests
+    order-sensitive against the real session DB."""
 
     def setUp(self):
         super().setUp()
-        self._sm_patcher = patch.object(state_manager, "DB_PATH", self.tmp_session.name)
+        self._sm_patcher = patch.object(state_manager, "ACTIVE_DB_PATH", self.tmp_session.name)
         self._sm_patcher.start()
         economy.seed_default_catalog("guild_rpg")
 
@@ -311,7 +315,7 @@ class TestUseItemSceneEffects(SceneEffectTestCase):
     def test_repel_binds_ward_and_consumes(self):
         ok, msg = economy.use_item("guild_rpg", "Hero", "beast_repellent_powder", node_id="node_camp")
         self.assertTrue(ok)
-        effects = state_manager.get_scene_effects("chronos_interactive_session", "node_camp")
+        effects = state_manager.get_scene_effects(state_manager.ACTIVE_SESSION_ID, "node_camp")
         self.assertEqual(len(effects), 1)
         self.assertEqual(effects[0]["kind"], "repel_animals")
         self.assertEqual(effects[0]["rounds_remaining"], 1)
@@ -322,7 +326,7 @@ class TestUseItemSceneEffects(SceneEffectTestCase):
     def test_blind_binds_effect_with_duration(self):
         ok, msg = economy.use_item("guild_rpg", "Hero", "flash_powder_vial", node_id="node_den")
         self.assertTrue(ok)
-        effects = state_manager.get_scene_effects("chronos_interactive_session", "node_den")
+        effects = state_manager.get_scene_effects(state_manager.ACTIVE_SESSION_ID, "node_den")
         self.assertEqual(len(effects), 1)
         self.assertEqual(effects[0]["kind"], "blind")
         self.assertEqual(effects[0]["rounds_remaining"], 1)
@@ -331,20 +335,20 @@ class TestUseItemSceneEffects(SceneEffectTestCase):
         """Same kind at the same node is an idempotent upsert, not a second row."""
         economy.use_item("guild_rpg", "Hero", "flash_powder_vial", node_id="node_den")
         economy.use_item("guild_rpg", "Hero", "flash_powder_vial", node_id="node_den")
-        effects = state_manager.get_scene_effects("chronos_interactive_session", "node_den")
+        effects = state_manager.get_scene_effects(state_manager.ACTIVE_SESSION_ID, "node_den")
         self.assertEqual(len(effects), 1)
 
     def test_tick_expires_blind_effect(self):
         economy.use_item("guild_rpg", "Hero", "flash_powder_vial", node_id="node_den")
-        expired = state_manager.tick_scene_effects("chronos_interactive_session", "node_den")
+        expired = state_manager.tick_scene_effects(state_manager.ACTIVE_SESSION_ID, "node_den")
         self.assertGreaterEqual(expired, 1)
-        effects = state_manager.get_scene_effects("chronos_interactive_session", "node_den")
+        effects = state_manager.get_scene_effects(state_manager.ACTIVE_SESSION_ID, "node_den")
         self.assertEqual(effects, [])
 
     def test_get_scene_effects_unscoped_lists_all_nodes(self):
         economy.use_item("guild_rpg", "Hero", "beast_repellent_powder", node_id="node_camp")
         economy.use_item("guild_rpg", "Hero", "flash_powder_vial", node_id="node_den")
-        effects = state_manager.get_scene_effects("chronos_interactive_session")
+        effects = state_manager.get_scene_effects(state_manager.ACTIVE_SESSION_ID)
         self.assertEqual(len(effects), 2)
 
 

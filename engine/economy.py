@@ -159,6 +159,12 @@ SEED_CATALOG = [
 # SxM1 (shota_x_monsters) economy seed: all 63 items with BESM-grounded Gold prices.
 from .sxm1_economy_catalog import SEED_CATALOG_SXM1, GOLD_PER_CP
 from .models import ChestLootSchema, ChestEffect
+# Module reference (NOT `from .state_manager import ACTIVE_SESSION_ID`) so the
+# value is read at call time — set_active_session_id redirects must be seen.
+from . import state_manager as _state_manager
+
+def _active_session_id() -> str:
+    return _state_manager.ACTIVE_SESSION_ID
 
 def set_active_roster_path(path: str) -> None:
     """Redirect all subsequent economy DB access to `path` (tests / isolated web).
@@ -523,24 +529,23 @@ def use_item(setting_id: str, character_name: str, item_id: str,
         # Scene effect: bind to the active node so the encounter layer knows.
         from .state_manager import apply_scene_effect
         rounds = effect.get("duration_rounds", 1)
-        apply_scene_effect(SESSION_SESSION_ID, node_id, kind,
+        apply_scene_effect(_active_session_id(), node_id, kind,
                            item.get("description", ""), rounds)
 
     if delta:
         try:
-            import sqlite3 as _sq
-            with _sq.connect(SESSION_PATH) as sess:
-                sess.row_factory = _sq.Row
+            with _state_manager.get_db_connection() as sess:
+                sess.row_factory = sqlite3.Row
                 vital = sess.execute(
                     "SELECT current_hp, current_ep FROM character_vitals WHERE session_id = ? AND name = ?",
-                    (SESSION_SESSION_ID, character_name)
+                    (_active_session_id(), character_name)
                 ).fetchone()
                 if vital is not None:
                     new_hp = vital["current_hp"] + (delta if kind == "heal" else 0)
                     new_ep = vital["current_ep"] + (delta if kind == "ep" else 0)
                     sess.execute(
                         "UPDATE character_vitals SET current_hp = ?, current_ep = ? WHERE session_id = ? AND name = ?",
-                        (new_hp, new_ep, SESSION_SESSION_ID, character_name)
+                        (new_hp, new_ep, _active_session_id(), character_name)
                     )
         except Exception as e:
             logger.error(f"Failed to apply vitals for '{item_id}': {e}")

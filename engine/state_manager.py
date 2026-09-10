@@ -23,6 +23,20 @@ WEB_SESSION_DB_PATH = os.path.join(DATA_DIR, "chronos_web_session.db")
 # behavior and the existing 681-test suite are unchanged. (CP-2)
 ACTIVE_DB_PATH = os.environ.get("CHRONOS_DB_PATH", DB_PATH)
 
+# The session-id namespace paired with ACTIVE_DB_PATH. The CLI uses the
+# interactive session; the web port switches to web_port_session so vitals /
+# scene-effect writes land on the correct session rows. use_item reads this so
+# /use heals the RIGHT session (previously hardcoded to the CLI path + id, so
+# the web heal silently no-op'd).
+ACTIVE_SESSION_ID = "chronos_interactive_session"
+
+
+def set_active_session_id(session_id: str) -> None:
+    """Point session-scoped writes (vitals, scene effects) at `session_id`."""
+    global ACTIVE_SESSION_ID
+    ACTIVE_SESSION_ID = session_id
+    logger.info(f"Active session id redirected to: {session_id}")
+
 
 def set_active_db_path(path: str) -> None:
     """Redirect all subsequent session-DB reads/writes to `path`.

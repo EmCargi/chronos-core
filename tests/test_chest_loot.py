@@ -272,5 +272,63 @@ class TestOpenedChests(unittest.TestCase):
         self.assertTrue(state_manager.is_chest_opened("s1", "node_x"))
 
 
+class TestUseItemActiveSession(unittest.TestCase):
+    """/use must heal vitals in the ACTIVE session DB + id (the web heal was a
+    silent no-op before — use_item hardcoded the CLI path + session id)."""
+
+    def setUp(self):
+        self.tmp_roster = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp_session = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp_roster.close()
+        self.tmp_session.close()
+        self._patchers = [
+            patch.object(economy, "ACTIVE_ROSTER_PATH", self.tmp_roster.name),
+        ]
+        for p in self._patchers:
+            p.start()
+        economy.init_economy_db()
+        self._orig_session_id = state_manager.ACTIVE_SESSION_ID
+        self._orig_db_path = state_manager.ACTIVE_DB_PATH
+        state_manager.set_active_db_path(self.tmp_session.name)
+        state_manager.set_active_session_id("test_session")
+        state_manager.init_db()
+
+    def tearDown(self):
+        for p in self._patchers:
+            p.stop()
+        state_manager.set_active_session_id(self._orig_session_id)
+        state_manager.set_active_db_path(self._orig_db_path)
+        os.unlink(self.tmp_roster.name)
+        os.unlink(self.tmp_session.name)
+
+    def test_use_heals_active_session_vitals(self):
+        # Deposit a heal consumable into the tmp roster.
+        item = economy.parse_chest_loot(VALID_HEAL, "wooden", 1)
+        item_id = economy.deposit_chest_loot("guild_rpg", "Miri", item, 1)
+        # Seed the vitals row for the ACTIVE session namespace (like the CLI boot).
+        with sqlite3.connect(self.tmp_session.name) as sess:
+            sess.execute(
+                "INSERT INTO character_vitals (session_id, name, body, mind, soul, current_hp, current_ep) "
+                "VALUES (?, 'Miri', 4, 5, 6, 40, 50)", ("test_session",))
+        ok, msg = economy.use_item("guild_rpg", "Miri", item_id)
+        self.assertTrue(ok)
+        with sqlite3.connect(self.tmp_session.name) as sess:
+            row = sess.execute(
+                "SELECT current_hp, current_ep FROM character_vitals WHERE session_id='test_session' AND name='Miri'"
+            ).fetchone()
+        self.assertEqual(row[0], 50)  # 40 + 10 (VALID_HEAL hp=10)
+        self.assertEqual(row[1], 50)  # no ep on this elixir
+
+    def test_use_consumes_quantity(self):
+        item = economy.parse_chest_loot(VALID_HEAL, "wooden", 1)
+        item_id = economy.deposit_chest_loot("guild_rpg", "Miri", item, 1)
+        with sqlite3.connect(self.tmp_session.name) as sess:
+            sess.execute(
+                "INSERT INTO character_vitals (session_id, name, body, mind, soul, current_hp, current_ep) "
+                "VALUES ('test_session', 'Miri', 4, 5, 6, 40, 50)")
+        economy.use_item("guild_rpg", "Miri", item_id)
+        self.assertEqual(economy.get_inventory("guild_rpg", "Miri"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

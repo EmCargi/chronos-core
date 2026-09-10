@@ -31,6 +31,8 @@ from .state_manager import (
     mark_chest_opened,
     unmark_chest_opened,
     is_chest_opened,
+    set_active_session_id,
+    ACTIVE_SESSION_ID,
     DB_PATH
 )
 from .economy import (

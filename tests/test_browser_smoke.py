@@ -31,6 +31,8 @@ def app(tmp_path):
     from engine import state_manager as sm
     from engine import economy as ec
     _orig_roster = ec.ACTIVE_ROSTER_PATH
+    _orig_db = sm.ACTIVE_DB_PATH
+    _orig_sid = sm.ACTIVE_SESSION_ID
     # Isolate the web session DB — never touch live data/ (existing suite convention)
     sm.set_active_db_path(str(tmp_path / "chronos_web_session.db"))
     # CP-11 Option A: redirect the SHARED economy/roster DB to a throwaway too,
@@ -40,9 +42,11 @@ def app(tmp_path):
     at = AppTest.from_file(BROWSER_FILE, default_timeout=30)
     at.run()
     yield at
-    # Restore the canonical economy/roster path so the redirect never leaks
-    # into sibling test files (test_economy, test_besm_catalog, ...).
+    # Restore EVERYTHING the app's boot mutates (session DB path + session id +
+    # economy/roster path) so state never leaks into sibling test files.
     ec.set_active_roster_path(_orig_roster)
+    sm.set_active_db_path(_orig_db)
+    sm.set_active_session_id(_orig_sid)
 
 
 def test_boots_without_exceptions(app):

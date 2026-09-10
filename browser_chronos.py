@@ -61,9 +61,13 @@ from engine.guild_roster import (
 )
 from engine.state_manager import (
     get_db_connection, init_db as init_state_db, set_active_db_path,
-    WEB_SESSION_DB_PATH,
+    set_active_session_id, WEB_SESSION_DB_PATH,
 )
 from core.ollama import default_chain, post_json
+
+# The web port's session-id namespace — paired with WEB_SESSION_DB_PATH so
+# vitals / scene-effect writes (/use, /effects) land on the web's own rows.
+WEB_SESSION_ID = "web_port_session"
 
 # ── render helpers ────────────────────────────────────────────────────────
 
@@ -117,6 +121,8 @@ if "initialized" not in st.session_state:
     from engine.state_manager import ACTIVE_DB_PATH, DB_PATH
     if ACTIVE_DB_PATH in (DB_PATH, WEB_SESSION_DB_PATH):
         set_active_db_path(WEB_SESSION_DB_PATH)
+    # Session-scoped writes (/use vitals, /effects) key on the web session id.
+    set_active_session_id(WEB_SESSION_ID)
     init_state_db()
     # Load default setting (Guild RPG) and bind home hub
     st.session_state.setting_id = DEFAULT_SETTING or "guild_rpg"
@@ -224,8 +230,6 @@ for entry in st.session_state.narrative_history:
 st.divider()
 st.subheader("⚡ Command")
 player_input = st.chat_input("Enter command...", key="chat_input")
-
-WEB_SESSION_ID = "web_port_session"
 
 # "Examine surroundings" button triggers an AI Director turn without chat input
 if st.button("👁️ Examine Surroundings", type="primary", use_container_width=True):
