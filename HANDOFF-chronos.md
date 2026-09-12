@@ -82,6 +82,7 @@ All **38 linked adventurer rows** have Character-Markdown greetings (First Messa
 | 2026-09-12 | — | `dev-journal/2026-09-12-sxm-first-stratum-complete.md` | **SxM First Stratum CLOSED** — 20/20 First Stratum monsters + 6-node labyrinth (forest_labyrinth_stratum1.json, validator-passed), all loadouts verified. The SxM First Stratum is a complete, bootable disc layer. |
 | 2026-09-12 | — | `dev-journal/2026-09-12-sxm-fifth-stratum-complete.md` | **SxM Fifth Stratum CLOSED** — 23/23 apex monsters forged + ingested (3 roster rows created, 104/109 `shota_x_monsters` with loadouts). The forge's SxM scope is complete. |
 | 2026-09-12 | — | `dev-journal/2026-09-12-besm-loadout-forge-mha-closed-sxm-first-stratum.md` | **Forge MHA scope CLOSED** — 121/121 loadouts confirmed in roster DB. Forge scope narrowed to SxM Fifth Stratum (23 apex monsters). The forge's role in the pipeline is proven: intake → judge → checkpoint → review → ingest, ready to feed the demo disc cast. |
+| 2026-09-12 | — | `dev-journal/2026-09-12-enid-disc-complete.md` | **Enid disc CLOSED** — first Anime Multiverse Prime World, 6 starter characters (besm_enid, 50 CP), 11 economy rows (psycho-frame chassis 20pts C), 5-node labyrinth (tavarre_outpost.json), 21/21 smoke (Vaelen Kor + Storm Wall). The console now boots 5 discs; the demo is ready to walk. |
 
 ## Architecture Overview
 
