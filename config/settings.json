@@ -66,6 +66,13 @@
       "description": "The BESM Anime Multiverse — Bazaroth, the dying world of the Demon Sun. Hellspawn, the Infernal King's Citadel of Fire, the Bloom, the Plain of Despair, and the Pilgrimage of Bloods.",
       "default_module": "pilgrimage_of_bloods.json",
       "character_label": "Brand"
+    },
+    {
+      "setting_id": "besm_imago",
+      "name": "Imago: Reality Punk",
+      "description": "The BESM Anime Multiverse — Imago, the reality-punk world. GEO world government, neomorph pet-battles, the Ikarion VR gate to Ikaris, fault-zone gangs, and the Xyconal menace.",
+      "default_module": "ikarion_breach.json",
+      "character_label": "Credential"
     }
   ]
 }

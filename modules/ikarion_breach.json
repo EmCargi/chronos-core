@@ -1,0 +1,95 @@
+{
+  "module_name": "Ikarion Breach — Neo-Evolution Grand Prix (besm_imago Starter)",
+  "points_budget": 50,
+  "stratum_count": 1,
+  "starting_node": "node_01_neo_edo",
+  "presets": [],
+  "nodes": {
+    "node_01_neo_edo": {
+      "node_id": "node_01_neo_edo",
+      "title": "Neo Edo — Grand Prix Arena",
+      "description": "The Neo-Evolution Grand Prix fills the Neo Edo arena — a gleaming ring under GEO banners, ringed by Typhon's neomorph booths, Monad's Brainscape demos, and ONE's virtuoid holo-stages. The crowd is roaring. Somewhere, a Xyconal'd neomorph is about to monster out.",
+      "node_type": "entrance",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_02_press"
+      }
+    },
+    "node_02_press": {
+      "node_id": "node_02_press",
+      "title": "The Press Gate",
+      "description": "The sponsor gate — a soul-checking credential check between the crowd and the arena floor. Clear it clean, flash the right badge, or find the fixer's bribe route. Warden Ona watches from the World Police rail.",
+      "node_type": "gate",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_soul",
+        "skill": 1,
+        "dv": 12,
+        "fail_damage": 0
+      },
+      "exits": {
+        "north": "node_03_arena",
+        "south": "node_01_neo_edo"
+      }
+    },
+    "node_03_arena": {
+      "node_id": "node_03_arena",
+      "title": "The Monster-Out",
+      "description": "The Grand Prix final — and a Xyconal'd kitten-sized tyrannosaurus neomorph suddenly towers, roaring, growth out of control. Read the chaos, route the crowd, keep the arena from becoming a crater before the World Police seal it.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_mind",
+        "skill": 2,
+        "dv": 13,
+        "fail_damage": 8
+      },
+      "exits": {
+        "north": "node_04_ikarion",
+        "south": "node_02_press"
+      }
+    },
+    "node_04_ikarion": {
+      "node_id": "node_04_ikarion",
+      "title": "The Ikarion Server Room",
+      "description": "Monad's server facility — the 28-million-player Ikarion world's physical heart. One section of the code is a virtual gate to Ikaris: players who reach certain levels are transported to the real Prime World. The breach is real, and it's humming.",
+      "node_type": "lore",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_05_fault_zone",
+        "south": "node_03_arena"
+      }
+    },
+    "node_05_fault_zone": {
+      "node_id": "node_05_fault_zone",
+      "title": "The Fault Zone Pursuit",
+      "description": "The monster-out's trail leads into the fault zone — Xyconal mutant gangs, a Bazaroth demon slipping between the towers, and the exo-suit gangs who overclocked the neomorph. A brutal body-check as the pursuit closes.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 2,
+        "dv": 14,
+        "fail_damage": 10
+      },
+      "exits": {
+        "north": "node_06_server",
+        "south": "node_04_ikarion"
+      }
+    },
+    "node_06_server": {
+      "node_id": "node_06_server",
+      "title": "The Breach Server",
+      "description": "The Ikarion breach server — seed data from the gate, a cache of the World Police's intrusion logs, and the cause of the monster-out. The Grand Prix's chaos is contained; the Multiverse is still connected.",
+      "node_type": "reward",
+      "stratum": 1,
+      "chest": {
+        "tier": "wooden"
+      },
+      "required_check": null,
+      "exits": {}
+    }
+  }
+}
