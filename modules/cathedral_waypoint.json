@@ -1,0 +1,95 @@
+{
+  "module_name": "Cathedral Waypoint — Orb Radiant (besm_cathedral Starter)",
+  "points_budget": 50,
+  "stratum_count": 1,
+  "starting_node": "node_01_dock",
+  "presets": [],
+  "nodes": {
+    "node_01_dock": {
+      "node_id": "node_01_dock",
+      "title": "Orb Radiant Outpost 9",
+      "description": "The pressurized docking ring on the cluster's edge — GTA customs postings on one side, Xyd pilgrim hostels on the other, a cantina where Treaty law and black-market bounties trade at the same table. Beyond the airlock: open void, 100,000 stars, and the plasma-bird nesting ground.",
+      "node_type": "entrance",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_02_customs"
+      }
+    },
+    "node_02_customs": {
+      "node_id": "node_02_customs",
+      "title": "GTA Quarantine Air-Lock",
+      "description": "Inspector Kaelen Drake runs the manifest inspection. Cargo checks, Treaty compliance, a tariff ledger with your name in it. Get the manifest signed or find the bribe route.",
+      "node_type": "gate",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_mind",
+        "skill": 2,
+        "dv": 12,
+        "fail_damage": 0
+      },
+      "exits": {
+        "north": "node_03_void_breach",
+        "south": "node_01_dock"
+      }
+    },
+    "node_03_void_breach": {
+      "node_id": "node_03_void_breach",
+      "title": "Depressurized Catwalk",
+      "description": "A hull breach exposes the catwalk to hard vacuum and cold radiation. The void is the enemy before the enemy — pass it, seal the breach, or be thrown back to the customs air-lock.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 2,
+        "dv": 15,
+        "fail_damage": 10
+      },
+      "exits": {
+        "north": "node_04_beacon_core",
+        "south": "node_02_customs"
+      }
+    },
+    "node_04_beacon_core": {
+      "node_id": "node_04_beacon_core",
+      "title": "Cathedral Wayline Relay",
+      "description": "An ancient pre-spaceflight navigational beacon, attuned to the World Gate. Vael-Xis the Grey reads its calibration like a tuning fork — the gate is real, and this beacon is the key to reaching it.",
+      "node_type": "lore",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_05_skiff_skirmish",
+        "south": "node_03_void_breach"
+      }
+    },
+    "node_05_skiff_skirmish": {
+      "node_id": "node_05_skiff_skirmish",
+      "title": "Solar Siphon Run",
+      "description": "A privateer skiff intercepts you in open space — the corsair doctrine hunting GTA convoys. Twin plasma cannons vs your hypercore. The void crackles as the skirmish begins.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 1,
+        "dv": 14,
+        "fail_damage": 12
+      },
+      "exits": {
+        "north": "node_06_salvage_cache",
+        "south": "node_04_beacon_core"
+      }
+    },
+    "node_06_salvage_cache": {
+      "node_id": "node_06_salvage_cache",
+      "title": "Derelict Cargo Container",
+      "description": "A sealed freight module adrift in the outpost shadow — storm-scoured, humming with salvage. The skirmish won, the cache is yours to open.",
+      "node_type": "reward",
+      "stratum": 1,
+      "chest": {
+        "tier": "wooden"
+      },
+      "required_check": null,
+      "exits": {}
+    }
+  }
+}
