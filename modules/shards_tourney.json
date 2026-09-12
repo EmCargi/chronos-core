@@ -1,0 +1,95 @@
+{
+  "module_name": "Tourney of the Nine Shards (besm_ikaris Starter)",
+  "points_budget": 50,
+  "stratum_count": 1,
+  "starting_node": "node_01_court",
+  "presets": [],
+  "nodes": {
+    "node_01_court": {
+      "node_id": "node_01_court",
+      "title": "The Tourney Pavilion of Azaria",
+      "description": "Banners of the Nine Shards snap in the wind. Heralds call the lists, betting rings crowd the margins, and the Marshal's Altar waits for the Vows. The Midsummer Tourney of the Shards is about to begin — and the College of Harpers watches from the high gallery.",
+      "node_type": "entrance",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_02_vow"
+      }
+    },
+    "node_02_vow": {
+      "node_id": "node_02_vow",
+      "title": "The Marshal's Altar",
+      "description": "Before you enter the lists you must swear the ancient Vows of Azar — a soul-checking oath that binds every true sorcerer and knight. Break it and you join the Forsaken. Swear it, and the tournament is yours to win.",
+      "node_type": "gate",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_soul",
+        "skill": 1,
+        "dv": 12,
+        "fail_damage": 0
+      },
+      "exits": {
+        "north": "node_03_monster_bait",
+        "south": "node_01_court"
+      }
+    },
+    "node_03_monster_bait": {
+      "node_id": "node_03_monster_bait",
+      "title": "The Sand Pit",
+      "description": "The tourney's monster-baiting contest — an escaped Azari border drake, dragged from the Dragon's Spine foothills, is loosed in the sand pit. Brutal physical coordination to bait and bleed it before it runs the crowd.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 2,
+        "dv": 13,
+        "fail_damage": 8
+      },
+      "exits": {
+        "north": "node_04_harpers_college",
+        "south": "node_02_vow"
+      }
+    },
+    "node_04_harpers_college": {
+      "node_id": "node_04_harpers_college",
+      "title": "The Hall of Harpers",
+      "description": "The College of Harpers' hall — and the World Gate nexus of Ikaris. Master Harper emissaries track the Aradia portals in every Seven Stars city and the sealed Bazaroth Keys. Mira Silvertongue reads the calibration; a gate hums beneath the floor.",
+      "node_type": "lore",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_05_grand_duel",
+        "south": "node_03_monster_bait"
+      }
+    },
+    "node_05_grand_duel": {
+      "node_id": "node_05_grand_duel",
+      "title": "The High Circle",
+      "description": "The grand duel of powers. An Azure Spire sorcerer raises the High Circle's ward, and tactical spellcraft must answer — or the blademaster from the Seven Stars, who treats every blade as magic, cuts through the ceremony. The lists narrow to one victor.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_mind",
+        "skill": 2,
+        "dv": 14,
+        "fail_damage": 10
+      },
+      "exits": {
+        "north": "node_06_prize",
+        "south": "node_04_harpers_college"
+      }
+    },
+    "node_06_prize": {
+      "node_id": "node_06_prize",
+      "title": "The Victor's Dais",
+      "description": "The tournament is won. On the Victor's Dais rests the purse and an ancient Azari artefact — the lent prize of the tourney, humming with the same power that opened the gates the Harpers guard.",
+      "node_type": "reward",
+      "stratum": 1,
+      "chest": {
+        "tier": "wooden"
+      },
+      "required_check": null,
+      "exits": {}
+    }
+  }
+}

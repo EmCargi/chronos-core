@@ -45,6 +45,13 @@
       "description": "The BESM Anime Multiverse — Cathedral, the globular pirate haven in the Orb Radiant. Plasma birds, Xyd pilgrims, GTA/Fusion proxy war, and the Cathedral gate.",
       "default_module": "cathedral_waypoint.json",
       "character_label": "Security Clearance"
+    },
+    {
+      "setting_id": "besm_ikaris",
+      "name": "Ikaris: Swords & Sorcery",
+      "description": "The BESM Anime Multiverse — Ikaris, the feudal magic world of the Nine Shards. Vows of Azar, grand tourneys, the College of Harpers gate nexus, and the Seven Stars.",
+      "default_module": "shards_tourney.json",
+      "character_label": "Oath"
     }
   ]
 }
