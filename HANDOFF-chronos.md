@@ -83,6 +83,7 @@ All **38 linked adventurer rows** have Character-Markdown greetings (First Messa
 | 2026-09-12 | — | `dev-journal/2026-09-12-sxm-fifth-stratum-complete.md` | **SxM Fifth Stratum CLOSED** — 23/23 apex monsters forged + ingested (3 roster rows created, 104/109 `shota_x_monsters` with loadouts). The forge's SxM scope is complete. |
 | 2026-09-12 | — | `dev-journal/2026-09-12-besm-loadout-forge-mha-closed-sxm-first-stratum.md` | **Forge MHA scope CLOSED** — 121/121 loadouts confirmed in roster DB. Forge scope narrowed to SxM Fifth Stratum (23 apex monsters). The forge's role in the pipeline is proven: intake → judge → checkpoint → review → ingest, ready to feed the demo disc cast. |
 | 2026-09-12 | — | `dev-journal/2026-09-12-enid-disc-complete.md` | **Enid disc CLOSED** — first Anime Multiverse Prime World, 6 starter characters (besm_enid, 50 CP), 11 economy rows (psycho-frame chassis 20pts C), 5-node labyrinth (tavarre_outpost.json), 21/21 smoke (Vaelen Kor + Storm Wall). The console now boots 5 discs; the demo is ready to walk. |
+| 2026-09-12 | — | `dev-journal/2026-09-12-cathedral-disc-orb-radiant-complete.md` | **Cathedral disc CLOSED** — second Anime Multiverse Prime World, 6 starter characters (besm_cathedral, 50 CP, Security Clearance), 26 economy rows (2-doctrine plasma skiffs 20pts C), 6-node labyrinth (cathedral_waypoint.json), 27/27 smoke (Caelen Vhol + vacuum hazard). Space opera on the same engine. The console now boots 6 discs. |
 
 ## Architecture Overview
 
