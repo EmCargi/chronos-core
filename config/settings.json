@@ -33,7 +33,7 @@
       "character_label": "Street Cred"
     },
     {
-      "setting_id": "enid",
+      "setting_id": "besm_enid",
       "name": "Enid: Heavy Weather",
       "description": "The BESM Anime Multiverse demo — Enid, 70 years after the Eternal Storm. LOA psychics vs Global Alliance over Tavarre, psycho-frame mecha, and a hurricane gate to Bazaroth.",
       "default_module": "tavarre_outpost.json",
