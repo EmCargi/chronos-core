@@ -31,6 +31,13 @@
       "description": "The Cyberpunk 2077 Night City heist module: street cred, chrome, and a 5-district run against Arasaka.",
       "default_module": "night_city_heist_v1.json",
       "character_label": "Street Cred"
+    },
+    {
+      "setting_id": "enid",
+      "name": "Enid: Heavy Weather",
+      "description": "The BESM Anime Multiverse demo — Enid, 70 years after the Eternal Storm. LOA psychics vs Global Alliance over Tavarre, psycho-frame mecha, and a hurricane gate to Bazaroth.",
+      "default_module": "tavarre_outpost.json",
+      "character_label": "Clearance"
     }
   ]
 }
