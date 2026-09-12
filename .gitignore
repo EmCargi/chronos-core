@@ -8,12 +8,8 @@ modules/
 # Confidential processed character profiles awaiting/after ingest
 staging/
 
-# Session/design docs that reference specific characters by name or log
-# real playthrough transcripts — same confidentiality category as data/
-BACKFILL_PLAN_ROSIVELLE_NARRATIVE_SYNTAX.md
-SESSION_RUN_RECORD_2026-08-01.md
-SESSION_RUN_RECORD_NARRATIVE_SYNTAX_2026-08-01.md
-ITEMS_ECONOMY_PLAN.md
+# Archived session/design docs — historical, not part of the active engine
+archives/
 
 # One-shot migration script with character backstory/psychology hardcoded
 # as string literals (sixth guard, personas, narrative levers) — confidential
