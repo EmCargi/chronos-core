@@ -73,6 +73,13 @@
       "description": "The BESM Anime Multiverse — Imago, the reality-punk world. GEO world government, neomorph pet-battles, the Ikarion VR gate to Ikaris, fault-zone gangs, and the Xyconal menace.",
       "default_module": "ikarion_breach.json",
       "character_label": "Credential"
+    },
+    {
+      "setting_id": "besm_omphalos",
+      "name": "Omphalos: The Council Chamber",
+      "description": "The BESM Anime Multiverse hub — the secret chamber of seven doors and seven thrones where the Prime gatekeepers meet. Deadlocked since Ozymandius vanished, with Bazaroth's rogue member growing in the vacuum.",
+      "default_module": "council_of_omphalos.json",
+      "character_label": "Seat"
     }
   ]
 }

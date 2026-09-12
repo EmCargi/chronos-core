@@ -1,0 +1,95 @@
+{
+  "module_name": "The Council of Omphalos (besm_omphalos Starter)",
+  "points_budget": 50,
+  "stratum_count": 1,
+  "starting_node": "node_01_threshold",
+  "presets": [],
+  "nodes": {
+    "node_01_threshold": {
+      "node_id": "node_01_threshold",
+      "title": "The Threshold of Seven Doors",
+      "description": "You arrive via Earth's secret wayline — a small, dark chamber with seven doorways. Each door is unique, keyed to a Prime World's wayline. Beyond them: the seven thrones, the deadlocked Council, and the empty seat that decides everything.",
+      "node_type": "entrance",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_02_doors"
+      }
+    },
+    "node_02_doors": {
+      "node_id": "node_02_doors",
+      "title": "The Seven Doors",
+      "description": "Read the doors — a Key's lock-check. Each is attuned to a Prime's wayline: Aradia's forest arch, Bazaroth's obsidian mouth, Enid's storm gate, Cathedral's stargate, Ikaris' harp-door, Imago's server-port. Touch the right one and wish, and the chamber admits you.",
+      "node_type": "gate",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_soul",
+        "skill": 1,
+        "dv": 12,
+        "fail_damage": 0
+      },
+      "exits": {
+        "north": "node_03_council",
+        "south": "node_01_threshold"
+      }
+    },
+    "node_03_council": {
+      "node_id": "node_03_council",
+      "title": "The Deadlocked Council",
+      "description": "Six gatekeepers, six thrones, and a gridlock that has lasted centuries. The Master Harper speaks for Ikaris; the Infernal King's envoy schemes for Bazaroth; Lyra Vance carries Enid's pressure. Break the deadlock — politically, not with a blade.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_mind",
+        "skill": 2,
+        "dv": 13,
+        "fail_damage": 8
+      },
+      "exits": {
+        "north": "node_04_empty_throne",
+        "south": "node_02_doors"
+      }
+    },
+    "node_04_empty_throne": {
+      "node_id": "node_04_empty_throne",
+      "title": "The Empty Throne",
+      "description": "Earth's throne sits empty — Ozymandius's seat, the deciding vote, missing for centuries. The whole game is here: without the Earth gatekeeper, the Council can't act. And the party must decide who — or what — takes it.",
+      "node_type": "lore",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_05_rogue_seat",
+        "south": "node_03_council"
+      }
+    },
+    "node_05_rogue_seat": {
+      "node_id": "node_05_rogue_seat",
+      "title": "The Rogue Seat",
+      "description": "Bazaroth's envoy forces the vote — hellspawn enforcers materialize from the door, and the deadlock turns violent. Hold the rogue seat, or the Infernal King's scheme wins by default.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 2,
+        "dv": 14,
+        "fail_damage": 10
+      },
+      "exits": {
+        "north": "node_06_weaver_relic",
+        "south": "node_04_empty_throne"
+      }
+    },
+    "node_06_weaver_relic": {
+      "node_id": "node_06_weaver_relic",
+      "title": "The Weaver Relic",
+      "description": "The rogue seat is held, the deadlock is broken. In the chamber's centre rests a Weaver relic — an artefact of power that exerts control over the Cosmic Web. And a seat that finally has a choice to make.",
+      "node_type": "reward",
+      "stratum": 1,
+      "chest": {
+        "tier": "wooden"
+      },
+      "required_check": null,
+      "exits": {}
+    }
+  }
+}
