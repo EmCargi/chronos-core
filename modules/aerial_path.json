@@ -1,0 +1,95 @@
+{
+  "module_name": "Aerial Path — The Vigil of the Blight (besm_aradia Starter)",
+  "points_budget": 50,
+  "stratum_count": 1,
+  "starting_node": "node_01_vale",
+  "presets": [],
+  "nodes": {
+    "node_01_vale": {
+      "node_id": "node_01_vale",
+      "title": "Vale of Thorns — Sabaoth Encampment",
+      "description": "The Council of Aeons' green, a Sabaoth hunting encampment on the Vale's edge. Winged Asrai muster beneath the Tiara of Aradia; the Oracles read the storm-symbols. Beyond the treeline, the Wormwood Blight's horizon smolders.",
+      "node_type": "entrance",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_02_oath"
+      }
+    },
+    "node_02_oath": {
+      "node_id": "node_02_oath",
+      "title": "The Vigil of the Wind",
+      "description": "Before the hunt, you swear the Vigil to the Oracles of the Wind — a soul-checking oath binding the Sabaoth to protect the Living Heaven and destroy the tainted. Break it, and the Blight has already won a hunter.",
+      "node_type": "gate",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_soul",
+        "skill": 1,
+        "dv": 12,
+        "fail_damage": 0
+      },
+      "exits": {
+        "north": "node_03_storm",
+        "south": "node_01_vale"
+      }
+    },
+    "node_03_storm": {
+      "node_id": "node_03_storm",
+      "title": "The Storm-Symbols",
+      "description": "The Wisdom of Aradia rises as a storm overhead — the planet reading you as you fly. Read the storm-symbols true, and the wind carries you; misread them, and the Living Heaven flings you back toward the Vale.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_mind",
+        "skill": 2,
+        "dv": 13,
+        "fail_damage": 8
+      },
+      "exits": {
+        "north": "node_04_whirl",
+        "south": "node_02_oath"
+      }
+    },
+    "node_04_whirl": {
+      "node_id": "node_04_whirl",
+      "title": "The Whirl — Gate to Earth",
+      "description": "The Whirl spins in the ocean — Aradia's natural dimensional gate to Earth, humming with the Cosmic Web. A lost angel's egg drifts on its edge. And the Blight's seed is reaching for it.",
+      "node_type": "lore",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_05_blight",
+        "south": "node_03_storm"
+      }
+    },
+    "node_05_blight": {
+      "node_id": "node_05_blight",
+      "title": "Wormwood Blight's Edge",
+      "description": "The cancer valley's edge — cannibal unicorns, dark fairies, wyverns under a sick green sky. The tainted fairy Mothwing is somewhere in here, and the Blight wants to reach the Whirl. A brutal body-check as the corrupted wildlife closes.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 2,
+        "dv": 14,
+        "fail_damage": 10
+      },
+      "exits": {
+        "north": "node_06_haven",
+        "south": "node_04_whirl"
+      }
+    },
+    "node_06_haven": {
+      "node_id": "node_06_haven",
+      "title": "The Tainted Haven",
+      "description": "Mothwing's haven — a glade the Blight hasn't yet consumed, holding a seed of the cancer and a small cache of the Living Heaven's gifts. The Vigil ends here: redeem the fairy, or let the Blight take its prize.",
+      "node_type": "reward",
+      "stratum": 1,
+      "chest": {
+        "tier": "wooden"
+      },
+      "required_check": null,
+      "exits": {}
+    }
+  }
+}

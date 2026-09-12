@@ -52,6 +52,13 @@
       "description": "The BESM Anime Multiverse — Ikaris, the feudal magic world of the Nine Shards. Vows of Azar, grand tourneys, the College of Harpers gate nexus, and the Seven Stars.",
       "default_module": "shards_tourney.json",
       "character_label": "Oath"
+    },
+    {
+      "setting_id": "besm_aradia",
+      "name": "Aradia: The Living Heaven",
+      "description": "The BESM Anime Multiverse — Aradia, the Living Heaven. Winged Asrai, the Council of Aeons, the Sabaoth warrior angels, the Whirl gate to Earth, and the Wormwood Blight.",
+      "default_module": "aerial_path.json",
+      "character_label": "Chorus"
     }
   ]
 }
