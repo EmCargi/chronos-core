@@ -1,0 +1,79 @@
+{
+  "module_name": "Tavarre Outpost — Heavy Weather (Enid Starter)",
+  "points_budget": 50,
+  "stratum_count": 1,
+  "starting_node": "node_01_outpost",
+  "presets": [],
+  "nodes": {
+    "node_01_outpost": {
+      "node_id": "node_01_outpost",
+      "title": "Tavarre Outpost",
+      "description": "The last neutral dome in the Tavarre corridor — LOA recruiter on the left, Alliance liaison on the right, a fixer in the back who knows the election was rigged. Beyond the airlock, the Eternal Storm howls. Somewhere in it, a hurricane that is also a gate.",
+      "node_type": "entrance",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_02_storm"
+      }
+    },
+    "node_02_storm": {
+      "node_id": "node_02_storm",
+      "title": "Storm Wall",
+      "description": "You step into the Wall — wind shear that can throw a mecha, lightning that drinks Energy, whiteout that erases the way back. The storm is the enemy before the enemy. Pass it or be thrown back to the dome.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 1,
+        "dv": 12,
+        "fail_damage": 10
+      },
+      "exits": {
+        "north": "node_03_duel",
+        "east": "node_02b_shrine",
+        "south": "node_01_outpost"
+      }
+    },
+    "node_02b_shrine": {
+      "node_id": "node_02b_shrine",
+      "title": "Bazaroth Shrine",
+      "description": "A storm-scoured shrine cut into the Tavarre rock — black glass, frozen candles, a name carved and re-carved: the hurricane gate's Key. The cult left it. The Way-Bound could be called here.",
+      "node_type": "lore",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "west": "node_02_storm",
+        "north": "node_03_duel"
+      }
+    },
+    "node_03_duel": {
+      "node_id": "node_03_duel",
+      "title": "Psycho-Frame Duel",
+      "description": "The hurricane's eye — and the gate inside it. An LOA psycho-frame (pilot amplifying 10x) faces an Alliance psycho-slave (captive psychic in the pod, command pilot at the stick). The duel is the test: win, and the gate is yours to lock or destroy. Lose, and the storm takes you.",
+      "node_type": "gate",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_soul",
+        "skill": 1,
+        "dv": 14,
+        "fail_damage": 15
+      },
+      "exits": {
+        "south": "node_02_storm",
+        "east": "node_04_reward"
+      }
+    },
+    "node_04_reward": {
+      "node_id": "node_04_reward",
+      "title": "Eye of the Gate",
+      "description": "The wind stops. The gate hums — toadstools, or a mirror, or the hurricane itself. A Skeleton Key could lock it, open it, or shatter it forever. A Wooden Chest sits at the threshold, storm-scoured and humming with salvage.",
+      "node_type": "reward",
+      "stratum": 1,
+      "chest": {
+        "tier": "wooden"
+      },
+      "required_check": null,
+      "exits": {}
+    }
+  }
+}
