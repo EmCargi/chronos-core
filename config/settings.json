@@ -59,6 +59,13 @@
       "description": "The BESM Anime Multiverse — Aradia, the Living Heaven. Winged Asrai, the Council of Aeons, the Sabaoth warrior angels, the Whirl gate to Earth, and the Wormwood Blight.",
       "default_module": "aerial_path.json",
       "character_label": "Chorus"
+    },
+    {
+      "setting_id": "besm_bazaroth",
+      "name": "Bazaroth: The Demon Sun",
+      "description": "The BESM Anime Multiverse — Bazaroth, the dying world of the Demon Sun. Hellspawn, the Infernal King's Citadel of Fire, the Bloom, the Plain of Despair, and the Pilgrimage of Bloods.",
+      "default_module": "pilgrimage_of_bloods.json",
+      "character_label": "Brand"
     }
   ]
 }

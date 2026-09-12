@@ -1,0 +1,95 @@
+{
+  "module_name": "The Pilgrimage of Bloods (besm_bazaroth Starter)",
+  "points_budget": 50,
+  "stratum_count": 1,
+  "starting_node": "node_01_shadowlands",
+  "presets": [],
+  "nodes": {
+    "node_01_shadowlands": {
+      "node_id": "node_01_shadowlands",
+      "title": "The Shadowlands",
+      "description": "The narrow band of perpetual cool twilight between Blood and Ice. Wraiths drift through the gloom — energy-draining ghosts, banshees, cannibal spirits. A Darkside tribe's Pilgrimage of Bloods begins here, under the Demon Sun's red haze.",
+      "node_type": "entrance",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_02_brand"
+      }
+    },
+    "node_02_brand": {
+      "node_id": "node_02_brand",
+      "title": "The King's Brand",
+      "description": "Before you cross into the Day Side, the Infernal King's law must mark you — a soul-checking brand that binds the Pilgrimage. Swear it, and the hunt is yours; refuse, and the wraiths have already claimed you.",
+      "node_type": "gate",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_soul",
+        "skill": 1,
+        "dv": 12,
+        "fail_damage": 0
+      },
+      "exits": {
+        "north": "node_03_plain",
+        "south": "node_01_shadowlands"
+      }
+    },
+    "node_03_plain": {
+      "node_id": "node_03_plain",
+      "title": "The Plain of Despair",
+      "description": "Beyond the Knives of the Sun lies the red desert where the hellspawn claim they broke the Invaders from Beyond. The dismembered corpses of weirdly beautiful giants lie scattered, decaying with preternatural slowness — and the maggot-brood's strange magics hunt those who cross.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_mind",
+        "skill": 2,
+        "dv": 13,
+        "fail_damage": 8
+      },
+      "exits": {
+        "north": "node_04_cauldron",
+        "south": "node_02_brand"
+      }
+    },
+    "node_04_cauldron": {
+      "node_id": "node_04_cauldron",
+      "title": "The Cauldron of Bazaroth",
+      "description": "The hottest place on the world — a sea of bubbling blood. The Trees of Death rise from it, their thorns studded with the impaled enemies of the demon lords. Beneath the blood, the wayline to Earth hums: the Citadel of Fire's gate, the Cosmic Web, and the seed of the Blight Aradia fights.",
+      "node_type": "lore",
+      "stratum": 1,
+      "required_check": null,
+      "exits": {
+        "north": "node_05_drakes",
+        "south": "node_03_plain"
+      }
+    },
+    "node_05_drakes": {
+      "node_id": "node_05_drakes",
+      "title": "The Hell Drake Nest",
+      "description": "Hell drakes nest in the Trees of Death — hybrids of insect, vampire, and dragon that hunt anyone venturing across the Cauldron. The Pilgrimage's final trial: take the Fruit from under their wings.",
+      "node_type": "encounter",
+      "stratum": 1,
+      "required_check": {
+        "stat": "stat_body",
+        "skill": 2,
+        "dv": 14,
+        "fail_damage": 10
+      },
+      "exits": {
+        "north": "node_06_trees",
+        "south": "node_04_cauldron"
+      }
+    },
+    "node_06_trees": {
+      "node_id": "node_06_trees",
+      "title": "The Fruit of the Trees of Death",
+      "description": "The Pilgrimage is won. A Fruit of the Trees of Death hangs within reach — necromantic, alchemical, a rite-of-passage prize that will earn a legion's rank. And on a lower branch, a captive Asrai waits for the verdict.",
+      "node_type": "reward",
+      "stratum": 1,
+      "chest": {
+        "tier": "wooden"
+      },
+      "required_check": null,
+      "exits": {}
+    }
+  }
+}
