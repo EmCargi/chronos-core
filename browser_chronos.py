@@ -126,6 +126,10 @@ if "initialized" not in st.session_state:
     init_state_db()
     # Load default setting (Guild RPG) and bind home hub
     st.session_state.setting_id = DEFAULT_SETTING or "guild_rpg"
+    # Re-point at the default setting's DB before the first character load
+    # (CP-3) — a disc default must read its own roster, not the shared one.
+    from engine.disc_registry import set_active_setting
+    set_active_setting(st.session_state.setting_id)
     st.session_state.active_org = "Aelthar Keldor"
     st.session_state.active_node_id = "node_start"
     # Load the first available character for the default setting
@@ -164,6 +168,12 @@ setting_id = st.sidebar.radio(
     help="Disc-based campaign setting. Guild RPG = Aelthar Keldor, SxM = labyrinth taming, MHA = U.A. High",
 )
 st.session_state.setting_id = setting_id
+
+# CP-3: re-point roster + economy at the committed setting's DB BEFORE any
+# sidebar selectbox, character load, or inventory query below reads a row —
+# a disc setting must never ghost-read the previous setting's DB.
+from engine.disc_registry import set_active_setting
+set_active_setting(st.session_state.setting_id)
 
 # Module selector
 if "story_map" not in st.session_state or st.session_state.get("last_setting_id") != setting_id:

@@ -26,10 +26,12 @@ BROWSER_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 
 
 @pytest.fixture
-def app(tmp_path):
+def app(tmp_path, monkeypatch):
     """Boot the Streamlit app headlessly with the session DB redirected to tmp."""
     from engine import state_manager as sm
     from engine import economy as ec
+    from engine import guild_roster as gr
+    from engine import disc_registry as dr
     _orig_roster = ec.ACTIVE_ROSTER_PATH
     _orig_db = sm.ACTIVE_DB_PATH
     _orig_sid = sm.ACTIVE_SESSION_ID
@@ -38,6 +40,36 @@ def app(tmp_path):
     # CP-11 Option A: redirect the SHARED economy/roster DB to a throwaway too,
     # so write commands (/grant /buy /use /provision) never pollute the live roster.
     ec.set_active_roster_path(str(tmp_path / "chronos_economy.db"))
+    # Neutralize the disc registry for tests (CP-3): the web boot calls
+    # set_active_setting() at the head of the script loop, which would resolve
+    # guild_rpg → the REAL shared DB and override the throwaway redirect above.
+    # Point the shared fallback at the tmp DB, init a full roster schema there,
+    # and disable disc discovery so every setting resolves to the isolated file.
+    gr.set_active_roster_path(str(tmp_path / "chronos_economy.db"))
+    monkeypatch.setattr(gr, "ROSTER_PATH", str(tmp_path / "chronos_economy.db"))
+    monkeypatch.setattr(dr, "_resolve_disc_dir", lambda: None)
+    gr.init_roster_db()          # creates settings/characters schema + seeds 13 settings
+    # The live shared DB carries two runtime-registered settings beyond the
+    # config DEFAULT_SETTINGS list — mirror them so the Setting radio matches.
+    gr.register_setting("guild_training_yard", "Guild Training Yard", "Zarlen evaluation",
+                        default_module="guild_training_yard_v1.json", character_label="Trainee")
+    gr.register_setting("tomoe_volcano_package", "Tomoe Character Package", "Eldrakor Volcano",
+                        default_module="tomoe_volcano_package_v1.json", character_label="Crimson Ronin")
+    # Seed a minimal cast + home org so /char and /org switching tests resolve
+    # (previously they read the live shared DB; the fixture now isolates).
+    gr.upsert_character("guild_rpg", {
+        "name": "Eira", "rank_label": "S-Rank", "race": "High Elf",
+        "points_budget": 120, "stat_body": 7, "stat_mind": 9, "stat_soul": 8,
+    }, "{}", "test.json")
+    gr.upsert_character("guild_rpg", {
+        "name": "Alex Mercer", "rank_label": "Unranked", "race": "Human",
+        "points_budget": 75, "stat_body": 6, "stat_mind": 8, "stat_soul": 6,
+    }, "{}", "test.json")
+    gr.init_organizations_table()
+    gr.upsert_organization("guild_rpg", {
+        "name": "Aelthar Keldor", "organization_type": "guild", "scale_tier": "Regional",
+        "leader": "Sylvara", "base_of_operations": "The Capital City",
+    })
     ec.init_economy_db()
     at = AppTest.from_file(BROWSER_FILE, default_timeout=30)
     at.run()

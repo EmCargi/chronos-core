@@ -274,6 +274,10 @@ def main():
     # 2. Resolve active setting + module from persisted session state (fallback: config default)
     nav = load_runtime_navigation(session_id) or {}
     active_setting_id = nav.get("setting_id") or DEFAULT_SETTING
+    # Re-point the roster/economy connections at the resolved DB (demo discs own
+    # their roster DB; IP discs fall back to the shared one).
+    from engine.disc_registry import set_active_setting
+    set_active_setting(active_setting_id)
     active_module_name = nav.get("module_name") or ""
     active_org = nav.get("org_name") or "Aelthar Keldor"
 
@@ -413,6 +417,11 @@ def main():
                     narrative_history.append("[bold yellow]System:[/bold yellow] Usage: /setting <setting_id> (try /settings to list).")
                 else:
                     target = parts[1].lower()
+                    # Re-point roster + economy at the target's DB FIRST so
+                    # get_setting() reads the authoritative source (a demo disc's
+                    # own DB after --prune-shared has removed the dormant rows).
+                    from engine.disc_registry import set_active_setting
+                    set_active_setting(target)
                     from engine.guild_roster import get_setting
                     if not get_setting(target):
                         narrative_history.append(f"[bold red]System:[/bold red] Unknown setting '{target}'. Run /settings to see registered settings.")

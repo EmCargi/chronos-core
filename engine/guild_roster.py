@@ -12,24 +12,43 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 ROSTER_PATH = os.path.join(DATA_DIR, "guild_rpg_roster.db")
 
+# Per-disc roster routing (2026-09-13): mirrors economy.py's redirect pattern.
+# None = "not redirected" — fall back to the CURRENT ROSTER_PATH, so test
+# fixtures that monkeypatch ROSTERY_PATH (gr.ROSTER_PATH) keep working.
+# set_active_setting() assigns a real path to re-point at a demo disc's DB.
+ACTIVE_ROSTER_PATH: str | None = None
+
 from .config import DEFAULT_SETTINGS
 
+def set_active_roster_path(path: str) -> None:
+    """Redirect all subsequent roster DB access to `path` (disc switch / tests).
+
+    Reassigns the module-level ACTIVE_ROSTER_PATH global so every function that
+    opens the roster DB (get_roster_connection, ...) targets the new file.
+    Mirrors economy.set_active_roster_path() for behavioral symmetry.
+    """
+    global ACTIVE_ROSTER_PATH
+    ACTIVE_ROSTER_PATH = path
+    logger.info(f"Active roster DB redirected to: {path}")
+
+def _active_roster_path() -> str:
+    """Resolve the active roster path, falling back to the shared DB."""
+    return ACTIVE_ROSTER_PATH if ACTIVE_ROSTER_PATH else ROSTER_PATH
+
 def get_roster_connection() -> sqlite3.Connection:
-    """Safely connects to data/guild_rpg_roster.db with standard context manager."""
+    """Safely connects to the active roster DB (shared by default, per-disc after set_active_setting)."""
     os.makedirs(DATA_DIR, exist_ok=True)
-    conn = sqlite3.connect(ROSTER_PATH)
+    conn = sqlite3.connect(_active_roster_path())
     conn.row_factory = sqlite3.Row
     return conn
 
-def init_roster_db() -> None:
+def apply_schema_migrations() -> None:
     """
-    Sets up the universal setting catalog tables:
-    - settings (setting_id, name, description, default_module, character_label)
-    - characters (setting_id, name, rank_label, race, points_budget, body, mind, soul,
-      acv, dcv, max_hp, max_ep, card_json, source_path, ingested_at)
-    - power_packs (setting_id, character_name, pack_name, source_path)
-    This database is the single source of truth for official character stats across
-    every registered setting; chronos_session.db holds only runtime session state.
+    Creates the universal setting catalog tables + runs the additive migrations,
+    WITHOUT seeding. Used by init_roster_db() on the shared DB AND by
+    set_active_setting() on a freshly resolved disc DB (CP-1) — a disc DB must
+    get the current schema but must NEVER be seeded with the 13 DEFAULT_SETTINGS
+    rows (that would pollute its settings table and corrupt the disc manifest).
     """
     with get_roster_connection() as conn:
         conn.execute("""
@@ -78,9 +97,21 @@ def init_roster_db() -> None:
     migrate_roster_multi_setting()
     migrate_roster_narrative_syntax()
     migrate_roster_besm_columns()
-    seed_default_settings()
     init_locations_table()
     init_organizations_table()
+
+def init_roster_db() -> None:
+    """
+    Sets up the universal setting catalog tables:
+    - settings (setting_id, name, description, default_module, character_label)
+    - characters (setting_id, name, rank_label, race, points_budget, body, mind, soul,
+      acv, dcv, max_hp, max_ep, card_json, source_path, ingested_at)
+    - power_packs (setting_id, character_name, pack_name, source_path)
+    This database is the single source of truth for official character stats across
+    every registered setting; chronos_session.db holds only runtime session state.
+    """
+    apply_schema_migrations()
+    seed_default_settings()
     logger.info(f"Guild RPG roster database initialized at {ROSTER_PATH}.")
 
 def migrate_roster_multi_setting() -> None:
@@ -91,9 +122,9 @@ def migrate_roster_multi_setting() -> None:
     is renamed to `rank_label`, and power_packs gain setting_id. Existing rows are
     backfilled to the guild_rpg setting. A checkpoint backup is taken first.
     """
-    if not os.path.exists(ROSTER_PATH):
+    if not os.path.exists(_active_roster_path()):
         return
-    with sqlite3.connect(ROSTER_PATH) as conn:
+    with sqlite3.connect(_active_roster_path()) as conn:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()]
         pks = [r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall() if r[5]]
         if "guild_rank" not in cols and pks == ["setting_id", "name"]:
@@ -169,9 +200,9 @@ def migrate_roster_narrative_syntax() -> None:
     so the runtime shell can inject them into the AI Director's context.
     Non-destructive: existing rows get empty defaults.
     """
-    if not os.path.exists(ROSTER_PATH):
+    if not os.path.exists(_active_roster_path()):
         return
-    with sqlite3.connect(ROSTER_PATH) as conn:
+    with sqlite3.connect(_active_roster_path()) as conn:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()]
         for column, ddl in [
             ("sixth_guard", "sixth_guard TEXT NOT NULL DEFAULT ''"),
@@ -191,9 +222,9 @@ def migrate_roster_besm_columns() -> None:
     so the runtime shell can inject mechanical constraints into the AI Director's
     context. Non-destructive: existing rows get safe defaults.
     """
-    if not os.path.exists(ROSTER_PATH):
+    if not os.path.exists(_active_roster_path()):
         return
-    with sqlite3.connect(ROSTER_PATH) as conn:
+    with sqlite3.connect(_active_roster_path()) as conn:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()]
         for column, ddl in [
             ("combat_techniques", "combat_techniques TEXT NOT NULL DEFAULT '[]'"),
@@ -337,10 +368,24 @@ def register_setting(setting_id: str, name: str, description: str = "",
     logger.info(f"Registered setting: {setting_id}")
 
 def list_settings() -> list:
-    """Returns all registered settings as a list of dicts."""
-    with get_roster_connection() as conn:
+    """Returns all registered settings as a list of dicts.
+
+    The SHARED half always reads the canonical shared DB (ROSTER_PATH), never
+    the active per-disc DB — otherwise list_settings() after a disc switch would
+    return only that disc's single settings row. The disc half comes from the
+    manifest (disc DBs win on overlap). The merge is lazy — disc_registry is
+    only imported on first call, and disc discovery is a no-op when DISC_DB_DIR
+    is unset.
+    """
+    with sqlite3.connect(ROSTER_PATH) as conn:
+        conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM settings ORDER BY setting_id").fetchall()
-        return [dict(r) for r in rows]
+        shared = [dict(r) for r in rows]
+    try:
+        from .disc_registry import list_settings_merged
+        return list_settings_merged(shared)
+    except Exception:
+        return shared
 
 def get_setting(setting_id: str) -> dict | None:
     """Returns a single setting as a dict, or None."""

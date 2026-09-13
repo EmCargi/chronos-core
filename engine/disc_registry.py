@@ -1,0 +1,153 @@
+"""Disc registry — resolves a setting_id to its roster database.
+
+Per-disc roster DBs (2026-09-13): each Anime Multiverse demo disc owns its
+roster DB at `demo-discs/<disc>/data/<setting_id>.db`. This module builds a
+lazy, in-memory manifest keyed by the resolved `DISC_DB_DIR` config, mapping
+setting_id → db_path so the engine can re-point the shared roster/economy
+connections at a disc's own database. Non-disc settings fall back to the shared
+`guild_rpg_roster.db`.
+
+Design rules (CP-1..CP-5 / OQ-1..OQ-2 of the approved proposal):
+- The manifest keys off the FILE NAME (`data/<setting_id>.db`), never the disc
+  DB's `settings` table — `init_roster_db()` seeds all 13 DEFAULT_SETTINGS into
+  whatever DB it opens, so reading the table would make every disc claim every
+  setting.
+- The manifest builds LAZILY on first resolver call, not at module import —
+  the test suite redirects DB paths per-fixture via monkeypatch, and an eager
+  cache would freeze the manifest before those redirects. A change to the
+  resolved DISC_DB_DIR invalidates it naturally; `refresh=True` forces a rebuild.
+- DISC_DB_DIR resolves relative to BASE_DIR (CP-2), never os.getcwd().
+"""
+
+import os
+import sqlite3
+from functools import lru_cache
+
+from .config import BASE_DIR, load_settings
+
+
+def _resolve_disc_dir() -> str | None:
+    """Resolve the configured disc root relative to BASE_DIR (CP-2), or None if unset.
+
+    Accepts `DISC_DB_DIR` from config/settings.json or the CHRONOS_DISC_DB_DIR
+    env var. Empty/absent => feature off (shared DB only, byte-identical behavior).
+    """
+    settings = load_settings()
+    raw = os.environ.get("CHRONOS_DISC_DB_DIR") or settings.get("DISC_DB_DIR", "")
+    if not raw:
+        return None
+    return os.path.normpath(os.path.join(BASE_DIR, raw))
+
+
+def build_disc_manifest(disc_root: str) -> dict:
+    """Scan `disc_root/*/data/<setting_id>.db` and map filename → db path.
+
+    The setting_id is derived from the DB FILE NAME (`besm_enid.db` →
+    `besm_enid`), never from the disc DB's `settings` table contents (CP-1) —
+    that table can carry the 13 seeded DEFAULT_SETTINGS rows, which would map
+    every disc to every setting. Each disc DB's own settings row is read only
+    for display metadata (name/description/character_label).
+    """
+    manifest = {}
+    if not os.path.isdir(disc_root):
+        return manifest
+    for disc_dir in sorted(os.listdir(disc_root)):
+        data_dir = os.path.join(disc_root, disc_dir, "data")
+        if not os.path.isdir(data_dir):
+            continue
+        for fname in sorted(os.listdir(data_dir)):
+            if not fname.endswith(".db"):
+                continue
+            setting_id = fname[:-3]  # strip ".db"
+            manifest[setting_id] = os.path.join(data_dir, fname)
+    return manifest
+
+
+_MANIFEST_CACHE: dict[str, dict] = {}  # disc_root -> {setting_id: db_path}
+
+
+def _manifest(disc_root: str) -> dict:
+    """Cached manifest lookup (lazy, OQ-1). Builds once per disc_root; a changed
+    disc root (config swap) gets its own entry. refresh=True forces a rebuild."""
+    if disc_root not in _MANIFEST_CACHE:
+        _MANIFEST_CACHE[disc_root] = build_disc_manifest(disc_root)
+    return _MANIFEST_CACHE[disc_root]
+
+
+def _manifest_refresh(disc_root: str) -> dict:
+    _MANIFEST_CACHE[disc_root] = build_disc_manifest(disc_root)
+    return _MANIFEST_CACHE[disc_root]
+
+
+def resolve_roster_db(setting_id: str, refresh: bool = False) -> str:
+    """Return the disc DB path for `setting_id`, or the shared roster DB.
+
+    Non-disc settings (guild_rpg, shota_x_monsters, my_hero_academia,
+    cyberpunk_2077) and any setting with no disc root resolve to the shared
+    `guild_rpg_roster.db`. `refresh=True` forces a manifest rebuild (splitter).
+    """
+    from .guild_roster import ROSTER_PATH
+
+    disc_root = _resolve_disc_dir()
+    if not disc_root:
+        return ROSTER_PATH
+    manifest = _manifest_refresh(disc_root) if refresh else _manifest(disc_root)
+    return manifest.get(setting_id, ROSTER_PATH)
+
+
+def disc_settings(disc_root: str) -> list:
+    """Return each disc's own settings row (metadata only) as a list of dicts.
+
+    Reads the `settings` table of every resolved disc DB and returns ONLY the
+    row whose setting_id matches the disc's filename — the disc DB may carry the
+    13 seeded DEFAULT_SETTINGS rows, so the filename is the authority (CP-1).
+    """
+    out = []
+    for setting_id, db_path in _manifest(disc_root).items():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT * FROM settings WHERE setting_id = ?", (setting_id,)
+                ).fetchone()
+        except sqlite3.Error:
+            continue
+        if row:
+            out.append(dict(row))
+    return out
+
+
+def list_settings_merged(shared_settings: list, disc_root: str | None = None) -> list:
+    """Merge shared DB settings with the disc manifest (disc DBs win on overlap).
+
+    `shared_settings` comes from the shared roster DB (guild_roster.list_settings').
+    Any setting the manifest owns is dropped from the shared list and replaced
+    by the disc DB's own metadata row.
+    """
+    if not disc_root:
+        disc_root = _resolve_disc_dir()
+    if not disc_root:
+        return shared_settings
+    owned = set(_manifest(disc_root).keys())
+    shared = [s for s in shared_settings if s["setting_id"] not in owned]
+    merged = shared + disc_settings(disc_root)
+    merged.sort(key=lambda s: s["setting_id"])
+    return merged
+
+
+def set_active_setting(setting_id: str, refresh: bool = False) -> str:
+    """Re-point the roster + economy connections to the setting's DB (CP-1).
+
+    Resolves the DB for `setting_id`, redirects guild_roster.ACTIVE_ROSTER_PATH
+    and economy.ACTIVE_ROSTER_PATH, then runs schema + additive migrations ONLY
+    (never seed_default_settings — seeding would pollute a disc DB's settings
+    table and corrupt the manifest). Returns the active DB path.
+    """
+    from . import guild_roster
+    from . import economy
+
+    path = resolve_roster_db(setting_id, refresh=refresh)
+    guild_roster.set_active_roster_path(path)
+    economy.set_active_roster_path(path)
+    guild_roster.apply_schema_migrations()
+    return path
