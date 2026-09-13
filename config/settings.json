@@ -3,7 +3,7 @@
   "THIN_MODEL": "deepseek-r1:7b",
   "DEFAULT_RULES": "besm_shell",
   "DEFAULT_SETTING": "guild_rpg",
-  "DISC_DB_DIRS": ["../demo-discs", "../guild-rpg-digital-dm"],
+  "DISC_DB_DIRS": ["../demo-discs", "../guild-rpg-digital-dm", "../mha-digital-dm"],
   "DEFAULT_SETTINGS": [
     {
       "setting_id": "guild_rpg",
