@@ -47,7 +47,7 @@ def app(tmp_path, monkeypatch):
     # and disable disc discovery so every setting resolves to the isolated file.
     gr.set_active_roster_path(str(tmp_path / "chronos_economy.db"))
     monkeypatch.setattr(gr, "ROSTER_PATH", str(tmp_path / "chronos_economy.db"))
-    monkeypatch.setattr(dr, "_resolve_disc_dir", lambda: None)
+    monkeypatch.setattr(dr, "_resolve_disc_dirs", lambda: [])
     gr.init_roster_db()          # creates settings/characters schema + seeds 13 settings
     # The live shared DB carries two runtime-registered settings beyond the
     # config DEFAULT_SETTINGS list — mirror them so the Setting radio matches.

@@ -14,6 +14,7 @@ DEFAULTS = {
     "THIN_MODEL": "deepseek-r1:7b",
     "DEFAULT_RULES": "besm_shell",
     "DEFAULT_SETTING": "guild_rpg",
+    "DISC_DB_DIRS": [],
     "DISC_DB_DIR": "",
     "DEFAULT_SETTINGS": []
 }
