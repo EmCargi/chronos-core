@@ -74,13 +74,14 @@ class TestCardScreening:
         assert "No stats" in desc
 
     def test_real_corpus_screens_consistently(self):
-        """Against the shipped persona-etl corpus: 94 statted / 245 lore-only."""
+        """Against the shipped persona-etl corpus: 94 statted / 246 lore-only."""
         cards = stage_cards.find_cards(stage_cards.DEFAULT_SOURCE)
-        assert len(cards) == 339
+        assert len(cards) == 340
         statted = 0
         for name, card_path in cards:
             card = json.loads(card_path.read_text())
-            desc = card["data"]["description"]
+            inner = card.get("data", card)
+            desc = inner.get("description", "")
             if stage_cards.extract_game_hp(desc) > 0:
                 statted += 1
         assert statted == 94

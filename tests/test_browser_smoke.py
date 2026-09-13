@@ -373,11 +373,13 @@ def test_setting_switches_and_radio_does_not_crash(app):
     assert not app.exception, [e.value for e in app.exception]
     joined = "\n".join(_all_markdown(app))
     assert "Switched to setting 'guild_training_yard'" in joined
-    # radio options now derive from list_settings() — all 5 discs, no ValueError
+    # radio options derive from list_settings() — every registered disc, no ValueError
+    from engine import guild_roster
+    expected = [s["setting_id"] for s in guild_roster.list_settings()]
     sel = next((w for w in app.sidebar if getattr(w, "label", "") == "Setting"), None)
     assert sel is not None
+    assert set(sel.options) == set(expected)  # all registered discs, incl. the 7 Multiverse + cyberpunk
     assert "guild_training_yard" in sel.options
-    assert len(sel.options) == 6  # 5 discs + cyberpunk_2077 (disc 4)
 
 
 def test_setting_unknown(app):
