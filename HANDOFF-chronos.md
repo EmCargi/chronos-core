@@ -1,15 +1,17 @@
 ---
 project: digital-dm
-date: 2026-09-09
+date: 2026-09-13
 status: active — demo disc in planning
-test_count: 814 total = 814 pass, 1 skip, all runnable (2026-09-09)
+test_count: 829 total = 827 pass, 2 skip, all runnable (2026-09-13)
 git: "local-only, engine code scoped (2026-08-14)"
 ---
 # Chronos Core — Handoff Document
 
-## Current State (2026-09-08)
+## Current State (2026-09-13)
 
-Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sandbox** with **two interfaces on one engine**: a terminal Rich TUI and a Streamlit browser dashboard. It pairs a Python-enforced BESM 4e (Tri-Stat System) rules simulation with local-LLM narrative generation via Ollama. V3 shipped on 2026-08-07 with full mechanical enforcement: Combat Techniques, Skills, Defects, and Shock Value are persisted in the roster DB and injected into every LLM shell turn. Multiple settings are registered (Guild RPG, Shota x Monsters 2, My Hero Academia, plus training-yard / Tomoe packages). The thin client runs the TUI *and* the web port; the big rig runs Ollama inference. **740 tests (740 pass, 1 skip) — every engine path regression-checked, including the roster/ingest importer suites + 53 headless web-port smoke tests.** Git was initialized 2026-08-14, **scoped to engine code only** — see Operational Notes for exactly what's excluded and why. As of 2026-08-22 the **Guild RPG cast + regions + organizations are wired into the live roster** via `engine/guild_ingest.py`, `engine/guild_region_ingest.py`, and `engine/guild_org_ingest.py` (deterministic extractors + safe-ingest guard, registry sheets as sole source of truth) — 45 guild_rpg character rows (38 adventurers + 7 bosses) + 16 location rows (4 macro-regions with full Narrative Syntax) + 1 organization row (Aelthar Keldor guild, full NS), see Lineage / What Works.
+**Per-disc roster DBs shipped 2026-09-13** — the demo discs are now self-contained. `engine/disc_registry.py` resolves setting_id → db path via a lazy filename-keyed manifest; `set_active_setting()` re-points guild_roster + economy (schema-migrations-only, never seeds). `scripts/split_disc_dbs.py` split the shared DB into **7 per-disc DBs** tracked in `demo-discs/`. **827 tests (827 pass, 2 skip).** Full triangulation: proposal + counter-plan + synthesis.
+
+Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sandbox** with **two interfaces on one engine**: a terminal Rich TUI and a Streamlit browser dashboard. It pairs a Python-enforced BESM 4e (Tri-Stat System) rules simulation with local-LLM narrative generation via Ollama. V3 shipped on 2026-08-07 with full mechanical enforcement: Combat Techniques, Skills, Defects, and Shock Value are persisted in the roster DB and injected into every LLM shell turn. Multiple settings are registered (Guild RPG, Shota x Monsters 2, My Hero Academia, plus training-yard / Tomoe packages). The thin client runs the TUI *and* the web port; the big rig runs Ollama inference. Git was initialized 2026-08-14, **scoped to engine code only** — see Operational Notes for exactly what's excluded and why. As of 2026-08-22 the **Guild RPG cast + regions + organizations are wired into the live roster** via `engine/guild_ingest.py`, `engine/guild_region_ingest.py`, and `engine/guild_org_ingest.py` (deterministic extractors + safe-ingest guard, registry sheets as sole source of truth) — 45 guild_rpg character rows (38 adventurers + 7 bosses) + 16 location rows (4 macro-regions with full Narrative Syntax) + 1 organization row (Aelthar Keldor guild, full NS), see Lineage / What Works.
 
 **Web port shipped 2026-09-07** — `browser_chronos.py` is a Streamlit dashboard mirroring the proven `browser_aeiou.py` shape: sidebar disc/roster selectors (model, setting, active node, home org) + vitals HUD (`st.metric`/`st.progress` for HP/EP/Shock/ACV/DCV) + `st.chat_input` command handler dispatching AI Director turns through the same `LLMBridge` fallback chain. All `engine/` code is reused via `sys.path` bootstrap — zero rules-logic changes. Session state is isolated to `chronos_web_session.db` (CP-2), the full triangulation trail lives in `changelog/proposals/2026-09-07-chronos-core-streamlit-port.md` + `changelog/counterplans/2026-09-07-chronos-core-streamlit-port.md`, and the milestone journal is `dev-journal/2026-09-07-chronos-core-streamlit-port.md`. Launch with the `chronos-ui` zsh alias.
 
@@ -89,6 +91,7 @@ All **38 linked adventurer rows** have Character-Markdown greetings (First Messa
 | 2026-09-12 | — | `dev-journal/2026-09-12-bazaroth-disc-complete.md` | **Bazaroth disc CLOSED** — fifth Anime Multiverse Prime World, 6 starter characters (besm_bazaroth, 50 CP, Brand), 64 economy rows (2-doctrine blood-steel blades 20pts C), 6-node labyrinth (pilgrimage_of_bloods.json), 27/27 smoke (Korrath + the Fruit of the Trees of Death). The hell capstone — all six Primes now live. The Omphalos hub is next. |
 | 2026-09-12 | — | `dev-journal/2026-09-12-imago-disc-complete.md` | **Imago disc CLOSED** — sixth Anime Multiverse Prime World, 6 starter characters (besm_imago, 50 CP, Credential), 26 economy rows (2-doctrine exo-hands 20pts C), 6-node labyrinth (ikarion_breach.json), 27/27 smoke (Kai Voss + the Ikarion gate). The reality-punk world completes the set — all six Primes + 4 originals = 10 discs. Omphalos unblocked. |
 | 2026-09-12 | — | `dev-journal/2026-09-12-omphalos-disc-complete.md` | **Omphalos hub CLOSED** — the capstone. 6 gatekeeper cast rows drawn from the six Prime discs (besm_omphalos, 50 CP, Seat), 132 economy rows (2-doctrine gate-keys 20pts C), 6-node labyrinth (council_of_omphalos.json), 27/27 smoke (Master Harper + the deadlocked Council). All seven thrones (6 Primes + Earth's mystery) filled. The console boots 11 discs. |
+| 2026-09-13 | `changelog/proposals/2026-09-13-chronos-core-per-disc-roster-db.md` | `dev-journal/2026-09-13-chronos-core-per-disc-roster-db.md` | **Per-disc roster DBs — demo discs own their data.** The demo shipment (chronos-core + 7 Anime Multiverse discs) now has self-contained discs. New `engine/disc_registry.py` resolves setting_id → db path via a lazy filename-keyed manifest (CP-1 — never the settings table, which `init_roster_db()` pollutes with all 13 seeded settings); `set_active_setting()` re-points guild_roster + economy and runs schema migrations ONLY (never `seed_default_settings`). `ACTIVE_ROSTER_PATH` mirrors economy's redirect; `apply_schema_migrations()` split out of `init_roster_db()`. `list_settings()` merges disc + shared from the SHARED DB (a fix caught at impl time — reading the active DB after a disc switch returned 1 row). TUI boot + `/setting` and web boot head re-point (CP-3). `DISC_DB_DIR` BASE_DIR-relative (CP-2). `scripts/split_disc_dbs.py` split the live shared DB into **7 per-disc DBs** (settings + chars + economy, transactional, parent→child, FK off, idempotent; `--prune-shared` timestamped-checkpoint + disc-presence gated, default dormant). Disc DBs **tracked in demo-discs/** (a disc IS its content). Full triangulation: proposal + counter-plan (5 rulings incl. the CP-1 seed-pollution correction) + synthesis. **827 pass / 2 skip** (+13 registry tests). Live acceptance: omphalos boots its own DB, enid its own economy, guild falls back to shared. | |
 
 ## Architecture Overview
 
@@ -110,15 +113,22 @@ chronos-core/
     │       ├── engine/char_wizard.py ── Interactive character creator with CP-budget checks
     │       └── engine/verify_dungeon.py ── Campaign module structural validator (5-room check)
     │
-    ├── config/settings.json ── LLM model, Ollama URL, default rules + setting
+    ├── config/settings.json ── LLM model, Ollama URL, default rules + setting, DISC_DB_DIR
     ├── modules/ ── Campaign node maps (8 modules across 3 settings)
     ├── data/
-    │   ├── guild_rpg_roster.db ── SOURCE OF TRUTH (settings, characters, items, wallets, inventory)
+    │   ├── guild_rpg_roster.db ── SOURCE OF TRUTH for IP discs (settings, characters, items, wallets, inventory)
     │   ├── chronos_session.db ── CLI runtime state only (repopulated from roster on launch)
     │   ├── chronos_web_session.db ── Web port runtime state only (isolated from CLI — CP-2)
     │   └── checkpoints/ ── Pre-migration DB snapshots
     └── staging/ ── Character card import queue (raw/ → processed/ + failed/)
 ```
+
+**Per-disc roster routing (2026-09-13):** the 7 demo discs own their roster DBs
+in the `demo-discs/` repo (`data/<setting_id>.db` — tracked there, a disc IS its
+content). `engine/disc_registry.py` resolves setting_id → db path via a lazy
+filename-keyed manifest; `set_active_setting()` re-points guild_roster + economy
+and runs schema migrations only. IP discs fall back to the shared
+`guild_rpg_roster.db` above.
 
 **Three databases, one rule:**
 - `guild_rpg_roster.db` — the canonical catalog (settings, characters [22 cols with BESM loadout], power packs, items, wallets, inventory). Survives sessions.
