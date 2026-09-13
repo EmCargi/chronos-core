@@ -1,22 +1,29 @@
-# ⚡ Chronos Core ⚡ — Version 3
+# ⚡ Chronos Core ⚡ — Version 4
 
-Chronos Core is a **multi-setting tabletop RPG engine and interactive fiction sandbox** with **two interfaces on one engine**: a terminal Rich TUI and a browser dashboard. It pairs semantic, local-LLM narrative generation with a strict, Python-enforced **Big Eyes, Small Mouth Fourth Edition (Tri-Stat System)** rules simulation — with a **universal campaign catalog, canonical character roster, a setting-agnostic item economy, and a full BESM 4e rules enforcement layer** wired to live Ollama inference.
+Chronos Core is a **local-first, multi-setting tabletop RPG console** with **two interfaces on one engine**: a terminal Rich TUI and a browser dashboard. It pairs semantic, local-LLM narrative generation (Ollama) with a strict, Python-enforced **Big Eyes, Small Mouth Fourth Edition (Tri-Stat System)** rules simulation — **the LLM narrates; Python holds the numbers.**
 
 > 🕹️ **This is the console.** Settings are **game discs** that plug into it — see
 > [`../SETTING_PACK_CONTRACT.md`](../SETTING_PACK_CONTRACT.md) for the five-layer disc contract.
 > The engine is setting-agnostic by design; each campaign registers via `config/settings.json`
 > (`DEFAULT_SETTINGS`) and ships its own module, roster, economy, and lore vault.
 
-Version 3 adds mechanical enforcement to the v2 foundation: the LLM shell prompt injects Combat Techniques, Skills, Defects, and Shock Value for Sixth Guard enforcement across the whole roster. The thin client dispatches narrative turns to the big rig's Ollama server (fallback chain: big rig → thin client), which returns mechanically grounded responses that respect each character's loadout.
+Version 4 is the **demo-ready** console: 11 bootable discs (7 first-party Anime Multiverse
+discs + Guild RPG + MHA + Cyberpunk + the SxM testing shelf), **per-disc roster databases**
+(every filesystem-homed disc owns its data at the filesystem layer), a 35-command palette in
+both interfaces, generative chest loot, and a web port with live token streaming. The SxM
+data layer is retained as testing/reference (scope closed 2026-09-13 — the existing game is
+canonical).
 
 ### 🖥️ Two Interfaces, One Engine
 
 | Interface | Entry point | When to use |
 |---|---|---|
-| **Terminal TUI** | `chronos` or `launcher.py` | Full command palette, immersive HUD, on the thin client |
-| **Browser dashboard** | `chronos-ui` | Visual vitals HUD, sidebar disc/roster selectors, chat-style command input — openable anywhere on the LAN |
+| **Terminal TUI** | `launcher.py` or `venv/bin/python chronos.py` | Full command palette, immersive HUD, on the thin client |
+| **Browser dashboard** | `chronos-ui` (Streamlit `browser_chronos.py`) | Visual vitals HUD, sidebar disc/roster selectors, live token streaming — openable anywhere on the LAN |
 
-Both interfaces share the same `engine/` code and the same roster DB — the web port adds a separate session DB (`chronos_web_session.db`) so the CLI's session state is never disturbed.
+Both interfaces share the same `engine/` code and the same per-disc roster DBs. The web
+port adds a separate session DB (`chronos_web_session.db`) so the CLI's session state is
+never disturbed.
 
 ---
 
@@ -25,67 +32,89 @@ Both interfaces share the same `engine/` code and the same roster DB — the web
 ```text
 chronos-core/
 ├── chronos.py                     # Main Rich TUI dashboard (command loop + HUD)
-├── browser_chronos.py             # Streamlit web port (sidebar + vitals HUD + chat input)
+├── browser_chronos.py             # Streamlit web port (sidebar + vitals HUD + chat + streaming)
 ├── launcher.py                    # Unified command launcher (TUI / wizard / ingest / verify)
-├── requirements.txt               # Web port deps (streamlit, plotly, pydantic)
-├── (backfill_besm.py archived → dev/archive/chronos-core/)
-├── ITEMS_ECONOMY_PLAN.md          # Design doc for the item & silver-economy layer
-├── config/
-│   └── settings.json              # Global LLM / model / default-setting config
-├── modules/
-│   ├── sandbox_75cp.json          # Guild RPG: starter sandbox (75 CP)
-│   ├── c_rank_trial.json          # Guild RPG: C-Rank trial (75 CP)
-│   ├── five_room_dungeon_v1.json  # Generic 5-room dungeon template (75 CP)
-│   ├── forest_labyrinth_v1.json   # Shota x Monsters: Labyrinth I (50 CP)
-│   ├── guild_training_yard_v1.json  # Guild RPG: training yard
-│   ├── zarlen_training_grounds_v1.json  # Guild RPG: training grounds (Zarlen boss)
-│   ├── tomoe_volcano_package_v1.json   # Guild RPG: Tomoe volcano campaign
-│   └── ua_entrance_exam.json      # My Hero Academia: U.A. Entrance Exam
-├── staging/
-│   ├── raw/                       # Incoming character card .json queue
-│   ├── processed/                 # Successfully ingested character cards
-│   └── failed/                    # Failed ingestions with error logs
 ├── engine/
 │   ├── __init__.py                # Package exports
 │   ├── config.py                  # Settings loader / defaults
 │   ├── models.py                  # Pydantic v2 contracts + Tri-Stat + BESM fields
 │   ├── state_manager.py           # Runtime session state (vitals, navigation, chronology)
-│   ├── guild_roster.py            # Multi-setting roster + BESM loadout functions
-│   ├── economy.py                 # Items, wallets, inventory + silver price curves
+│   ├── guild_roster.py            # Multi-setting roster + BESM loadout + schema migrations
+│   ├── economy.py                 # Items, wallets, inventory + silver/gold price curves
 │   ├── batch_ingest.py            # Character card importer with setting detection
-│   ├── llm_bridge.py              # Ollama dispatch + BESM field formatters
+│   ├── card_to_besm.py            # Deterministic card → BESM compiler (zero LLM)
+│   ├── llm_bridge.py              # Ollama dispatch + BESM field formatters + stream holdback
+│   ├── disc_registry.py           # Per-disc DB resolver (filename-keyed manifest)
+│   ├── verify_dungeon.py          # Module validator (5-room + branching labyrinth)
 │   ├── char_wizard.py             # Character Creator Wizard utility
-│   ├── verify_dungeon.py          # Campaign module structural validator
 │   └── prompts/
 │       ├── besm_shell.md          # LLM shell prompt (8 sections, 8 directives)
-│       └── besm_loot.md           # Loot synthesis prompt
+│       ├── loot_weaver.md         # Generative chest-loot prompt (Pydantic-enforced)
+│       ├── besm_labyrinth_architect.md  # Labyrinth authoring prompt
+│       └── besm_loot.md / besm_module_architect.md
+├── modules/                       # Campaign node maps (15 modules across the discs)
+├── config/settings.json           # LLM model, Ollama URL, DEFAULT_SETTINGS, DISC_DB_DIRS
+├── staging/                       # Character card import queue (raw/ → processed/ + failed/)
 └── data/
-    ├── guild_rpg_roster.db        # SOURCE OF TRUTH: settings, 45 characters, items, economy
+    ├── guild_rpg_roster.db        # SHARED shelf: IP discs without a home repo (cyberpunk, shota)
     ├── chronos_session.db         # CLI runtime session state only
     ├── chronos_web_session.db     # Web port runtime session state (isolated from CLI)
     └── checkpoints/               # Automatic pre-migration DB snapshots
 ```
 
-**Three databases, one rule:**
-- `guild_rpg_roster.db` — the **canonical catalog** (settings, characters [22 cols with BESM loadout], power packs, items, wallets, inventory). Survives sessions.
-- `chronos_session.db` — **CLI runtime state only** (current vitals, active node, narrative history). Repopulated from the roster on launch.
-- `chronos_web_session.db` — **web port runtime state only**, kept separate so the browser dashboard never contends with a running TUI session (CP-2).
+**Per-disc roster routing (2026-09-13):** most discs own their roster DB inside their own
+folder — `demo-discs/<world>/data/<setting>.db` (tracked) and `guild-rpg-digital-dm/data/`,
+`mha-digital-dm/data/` (gitignored, confidential). `engine/disc_registry.py` resolves
+setting_id → db path via a lazy filename-keyed manifest; `set_active_setting()` re-points
+roster + economy and runs schema migrations only. The shared `guild_rpg_roster.db` above is
+now the fallback shelf for discs without a dedicated repo (cyberpunk, shota).
 
 ---
 
-## 🌍 Multi-Setting Architecture (v2)
+## 🎮 The Discs
 
-The core is setting-agnostic. Everything campaign-specific is scoped by a `setting_id`:
+Eleven discs boot the identical console — different worlds, same engine. The 7 Anime
+Multiverse discs (first-party, from BESM 4e Chapter 14) are the demo shipment target.
 
-| Setting | Description | Default module | Label | Roster |
+| Disc | setting_id | Default module | Label | Roster / Data home |
 |---|---|---|---|---|
-| `guild_rpg` | Aelthar Keldor: the Guild RPG campaign system | `sandbox_75cp.json` | Guild Rank | 45 rows (38 adventurers + 7 bosses), 16 locations, 1 org |
-| `shota_x_monsters` | Shota x Monsters 2 BESM 4e expansion | `forest_labyrinth_v1.json` | Monster Tier | 105 rows (94 card-derived + 3 presets + 8 curated Bestiary) |
-| `my_hero_academia` | U.A. High Entrance Exam module | `ua_entrance_exam.json` | Hero Rank | Registered (Disc 3) |
+| **Enid: Heavy Weather** | `besm_enid` | `tavarre_outpost.json` | Clearance | 6 chars — own DB (`demo-discs/`) |
+| **Ikaris: Swords & Sorcery** | `besm_ikaris` | `shards_tourney.json` | Oath | 6 chars — own DB |
+| **Cathedral: Orb Radiant** | `besm_cathedral` | `cathedral_waypoint.json` | Security Clearance | 6 chars — own DB |
+| **Aradia: The Living Heaven** | `besm_aradia` | `aerial_path.json` | Chorus | 6 chars — own DB |
+| **Bazaroth: The Demon Sun** | `besm_bazaroth` | `pilgrimage_of_bloods.json` | Brand | 6 chars — own DB |
+| **Imago: Reality Punk** | `besm_imago` | `ikarion_breach.json` | Credential | 6 chars — own DB |
+| **Omphalos: The Council Chamber** | `besm_omphalos` | `council_of_omphalos.json` | Seat | 6 chars — own DB |
+| **Guild RPG (Aelthar Keldor)** | `guild_rpg` | `zarlen_training_grounds_v1.json` | Guild Rank | 46 chars + 16 locations + orgs — own DB (`guild-rpg-digital-dm/`) |
+| **My Hero Academia** | `my_hero_academia` | `ua_entrance_exam.json` | Hero Rank | 121 chars + 121 Quirk power packs — own DB (`mha-digital-dm/`) |
+| **Cyberpunk 2077** | `cyberpunk_2077` | `night_city_heist_v1.json` | Street Cred | 33 chars — shared shelf |
+| **Shota x Monsters (testing shelf)** | `shota_x_monsters` | `forest_labyrinth_stratum1.json` | Monster Tier | 109 chars — shared shelf, scope closed |
 
-New settings register via `register_setting()` — no code changes required beyond seeding a roster.
+Plus two registered sub-settings (`guild_training_yard`, `tomoe_volcano_package`) for
+Guild RPG's extra modules. New settings register via `register_setting()` — no code
+changes beyond seeding a roster.
 
-**Character ingest** routes cards automatically: `[Setting: <id>]` is authoritative, `[Guild Rank:]` implies `guild_rpg`, `[Tier:]` implies `shota_x_monsters`, and a configured `DEFAULT_SETTING` catches everything else.
+**Three source archetypes proved:** registry-sheet cast (Guild), one big lorebook (MHA,
+188-entry chub.ai JSON → vault + roster), and monster catalog (SxM playground). The engine
+and the Setting Pack Contract handle all three.
+
+---
+
+## 🛡️ BESM 4e Rules Enforcement Layer
+
+Every character carries a full mechanical loadout persisted in the roster DB and injected
+into the LLM shell prompt on every narrative turn:
+
+| Column | Content | Enforcement |
+|---|---|---|
+| `combat_techniques` | Martial edges (Hardboiled, Precise Aim, Critical Strike, …) | Applied automatically when relevant — obstacle reduction, damage multipliers, initiative edges |
+| `skills` | Training with ranks 1-6 and specialisations | Rank bonus to Stat rolls; Minor Edge on specialisation match |
+| `defects` | Mechanical vulnerabilities (Phobia, Lazy, Vulnerability, …) | Triggered immediately on condition — never softened |
+| `shock_value` | Modified stun threshold (base HP÷5 + Hardboiled, capped at ½ HP) | Heavy hits force Soul checks or stun |
+
+**The LLM narrates; Python enforces.** The shell prompt injects the active character's full
+loadout; the Director holds mechanical constraints — it can *describe* an attack but cannot
+*resolve* one. Rules math (checks, damage, pricing) is always local.
 
 ---
 
@@ -97,80 +126,38 @@ character in the roster DB and injected into every LLM shell turn:
 | Field | Meaning |
 |---|---|
 | `structural_fault` | What breaks them — the systemic weakness their kit can't answer |
-| `sixth_guard` | The **terminal failure point**: when its condition is met, the character **must** collapse mechanically and narratively — the breakdown is never softened |
+| `sixth_guard` | The **terminal failure point**: when its condition is met, the character **must** collapse mechanically and narratively — never softened |
 | `levers` | The three value-neutral strategic channels they operate through (Containment / Velocity / Defection) |
 
-**The contract is enforced, not suggested.** The shell prompt (Directive 4) instructs the
-model to weave the Structural Fault and Levers into narration, and to collapse the character
-when the Sixth Guard's condition fires — no ACV/DCV rationalization, no softened escape.
-
-**Three guard classes** emerge across the roster, each watching a different axis:
-- **Resource** — Eira (EP 0 + ally in danger → Compassion Override)
-- **Spatial** — Seris (threat closing past her footwork), Miri (overextension past the line)
-- **Environmental** — Rosivelle (non-standard hazard bypassing textbook geometry)
-
-This turns party composition into *load-bearing structure*: each member's guard is disarmed
-by a specific teammate's discipline, so teamwork is a mechanical necessity, not a preference.
+**The contract is enforced, not suggested.** The shell prompt instructs the model to weave
+the Structural Fault and Levers into narration and collapse the character when the Sixth
+Guard fires. Home organizations (e.g. Aelthar Keldor) and macro-regions carry the same
+syntax, so the *world* is load-bearing too.
 
 ---
 
-## 🛡️ BESM 4e Rules Enforcement Layer
+## 💰 Item Economy
 
-Every character now carries a full mechanical loadout persisted in the roster DB and
-injected into the LLM shell prompt on every `/examine` and `/loot` turn:
-
-| Column | Content | Enforcement |
-|---|---|---|
-| `combat_techniques` | Martial edges (Hardboiled, Precise Aim, Critical Strike, etc.) | Applied automatically when relevant — obstacle reduction, damage multipliers, initiative edges |
-| `skills` | Training with ranks 1-6 and specialisations | Rank bonus to Stat rolls; Minor Edge on specialisation match |
-| `defects` | Mechanical vulnerabilities (Phobia, Lazy, Vulnerability, etc.) | Triggered immediately on condition — never softened or narrated around |
-| `shock_value` | Modified stun threshold (base HP÷5 + Hardboiled, capped at ½ HP) | Heavy hits force Soul checks or stun |
-
-**Every roster character** has a complete loadout derived from its canonical profile.
-The LLM enforces these in real time: Rosivelle freezes vs. mice (Phobia), Tomoe's rage
-vs. Zarkhoth (Vengeance Singularity), Liora's collapse in darkness (Perimeter Breach).
-
----
-
-## ⚡ Tri-Stat & CP Rules Economy
-
-Chronos Core enforces the **BESM 4e** physics:
-
-* **Stats**: Body, Mind, Soul — rank `1` to `12`.
-* **Cost**: 2 CP per stat rank.
-* **Power levels**: Human 25–49 CP / Heroic 50–74 / Paragon 75–99 / etc.
-* **Derived vitals**:
-  * **HP** = (Body + Soul) × 5
-  * **EP** = (Mind + Soul) × 5
-  * **Shock Value** = Max HP ÷ 5
-  * **ACV** = (Body + Mind + Soul) ÷ 3
-  * **DCV** = ACV − 2
-* **Checks**: `2d6 + Stat Rank + Skill Rank ≥ DV`
-  * Difficulty targets: Simple 6 / Easy 9 / Average 12 / Difficult 15 / Challenging 18 / Unlikely 21 / Improbable 24
-  * **Hedging** = take 7
-
----
-
-## 💰 Item Economy (v2)
-
-Items are settings-scoped and priced by a model synthesized from BESM 4e + the Aelthar Keldor economy:
+Items are settings-scoped and priced by a model synthesized from BESM 4e + each disc's
+economy docs:
 
 * **Item CP** = half the BESM attribute points (rounded down) — effects-based.
-* **Permanent items** price via the **Fibonacci silver curve** (1 CP = 100 sp; `100, 100, 200, 300, 500 …`):
-  * 3 CP → 400 sp · 4 CP → 700 sp · 5 CP → 1,200 sp
+* **Permanent items** price via the **Fibonacci curve** (1 CP = 100 sp; `100, 100, 200, 300, 500 …`).
 * **Consumables** price by **quest-rank bracket**: D 3–10 / C 15–40 / B 50–200 / A 300–800 sp · S & SS priceless.
-* **Healing** scales `Lvl × 5 HP` (Standard Health Potion = Lvl 3 → 15 HP @ 25 sp).
-* Seeded **Guild RPG shop** (Jaxon the Alchemist + Rosivelle's reference permanents); each setting gets its own catalog.
+* **Gold discs** (SxM) use `50 × cost × category_mult`; **generative chest loot** (`/open`) prices runtime drops through the same curves with `loot_only` hiding them from `/shop`.
+* A 220-item **BESM canon catalog** (`engine/besm_catalog.py`) provisions any disc idempotently via `seed_besm_catalog()`.
 
 ---
 
 ## 🧙 Character Ingestion & Staging
 
-1. Place a character card `.json` (SillyTavern V2/V3 format) in `staging/raw/`.
+1. Place a character card `.json` (SillyTavern V2/V3) in `staging/raw/`.
 2. Run `auto-ingest` — the parser extracts stats, ranks, combat values, power packs, and the Active Narrative Syntax fields via `[Sixth Guard:]` / `[Structural Fault:]` / `[Levers:]` tags.
 3. Cards route to `staging/processed/` on success (and the roster DB is updated), or `staging/failed/` with error logs.
 
-Canonical AK profiles live as structured markdown in the Aethor Kaeldor character vault, each embedding a `JSON Payload` that maps directly to roster rows.
+Deterministic compilers do the stat work with **zero LLM**: `card_to_besm.py` (cards) and the
+`guild_*`/`sxm1_*` pullovers (registry sheets / bestiary markdown) build roster rows from the
+discs' canonical sheets.
 
 ---
 
@@ -182,10 +169,10 @@ chronos-ui                     # zsh alias — launches Streamlit, opens the bro
 # or directly:
 /home/megane/dev/venv/bin/streamlit run browser_chronos.py
 ```
-The web port boots at `http://localhost:8502` (openable on the LAN). Sidebar picks
-the setting / active node / home org / model; the vitals HUD shows HP / EP / Shock /
-ACV / DCV; the chat input dispatches AI Director turns through the same Ollama
-fallback chain as the TUI. Session state is isolated to `chronos_web_session.db`.
+The web port boots at `http://localhost:8502` (openable on the LAN). Sidebar picks the
+setting / active node / home org / model; the vitals HUD shows HP / EP / Shock / ACV / DCV;
+the chat input dispatches AI Director turns through the same Ollama fallback chain as the
+TUI, with **live token streaming**. Session state is isolated to `chronos_web_session.db`.
 
 ### Terminal TUI
 ```bash
@@ -194,7 +181,7 @@ python3 launcher.py            # launcher menu (TUI / wizard / ingest / verify)
 venv/bin/python chronos.py     # Rich TUI with full command palette
 ```
 
-### Command Palette
+### Command Palette (35 commands across both interfaces)
 
 | Command | Action |
 |---|---|
@@ -202,20 +189,26 @@ venv/bin/python chronos.py     # Rich TUI with full command palette
 | `examine` | LLM narrative description of the current node |
 | `/attack` | Resolve a combat/obstacle check vs. the active node |
 | `/loot` | LLM-synthesize an ephemeral item into the session ledger |
-| `/open` | Open a labyrinth chest — generative, Pydantic-validated loot priced + deposited into the canonical economy (`loot_only`, hidden from `/shop`) |
+| `/open` | Open a chest-bearing node — generative, Pydantic-validated loot priced + deposited into the canonical economy (`loot_only`, hidden from `/shop`) |
 | `/settings` | List all registered settings |
-| `/setting <id>` | Switch active setting |
+| `/setting <id>` | Switch active setting (re-points to the disc's own DB) |
 | `/module <name>` | Switch campaign module within the active setting |
 | `/char <name>` | Switch active character within the setting |
+| `/org <name>` / `/orgs` | Switch / list the active home organization (guild hub) |
+| `/startgreeting <n>` | Begin a session from a character greeting (domestic greetings anchor at the hub) |
 | `/roster` | List the setting's roster |
+| `/loadout` | Show full BESM build (techniques, skills, defects, shock value) |
 | `/shop [rank]` | List the setting's item catalog (optionally filtered) |
 | `/buy <item_id> [qty]` | Purchase from the catalog (deducts wallet) |
 | `/wallet [name]` | Show a character's silver balance |
 | `/grant <silver>` | GM quick-balance command |
 | `/inventory` | Show owned items |
-| `/loadout` | Show full BESM build (techniques, skills, defects, shock value) |
-| `/use <item_id>` | Consume a consumable (e.g. heal 15 HP) |
+| `/use <item_id>` | Consume a consumable (binds repel/blind scene effects to the current node) |
+| `/effects` | List active scene effects at the current node |
 | `/provision [info] [filters]` | GM-seed the BESM canon into the active setting's shop. Filters: `eras=archaic,modern`, `categories=melee`, `types=weapon`, `cap=800`; bare token = era filter; `info` = preview only |
+| `/diceless <cv> [AR] [extra_def] [edge]` | Diceless Total Combat Roll — TCR breakdown + Table-15 MoS band; `/diceless hedge` = auto-7 non-combat |
+| `/maneuver <sub>` | Combat maneuver arsenal — `stance`/`two-weapon`/`strike`/`touch`/`called`/`grapple`/`grabbed`/`escape`/`pin`/`multi` |
+| `/shock` `/resist` `/fall` `/range` `/size` `/defence` `/sanity` `/recover` `/scv` `/techniques` `/defects` | Deterministic BESM math |
 | `auto-ingest` | Run the staging sweep |
 
 ### Launcher Utilities
@@ -237,7 +230,8 @@ Configure in `config/settings.json`:
   "ACTIVE_MODEL": "hf.co/bartowski/TheDrummer_Cydonia-24B-v4.3-GGUF:Q4_K_M",
   "THIN_MODEL": "deepseek-r1:7b",
   "DEFAULT_RULES": "besm_shell",
-  "DEFAULT_SETTING": "guild_rpg"
+  "DEFAULT_SETTING": "guild_rpg",
+  "DISC_DB_DIRS": ["../demo-discs", "../guild-rpg-digital-dm", "../mha-digital-dm"]
 }
 ```
 
@@ -245,13 +239,21 @@ Configure in `config/settings.json`:
 (`100.73.250.56:11434`) by default and hops to the thin client's local Ollama on
 connectivity/server errors. The big rig itself is never touched by tooling.
 
-All rules math (checks, damage, item pricing) is computed locally in Python; the LLM only supplies prose and loot-flavor, gated through the output validator.
+All rules math (checks, damage, item pricing) is computed locally in Python; the LLM only
+supplies prose and loot-flavor, gated through the output validator and Pydantic schema
+(`[LOOT PAYLOAD]` for `/open`). The narrative turn receives the active character's **full
+BESM loadout**: Active Narrative Syntax, Combat Techniques, Skills, Defects, and Shock Value.
 
-The narrative turn receives the active character's **full BESM loadout**:
-- **Active Narrative Syntax** (Structural Fault, Sixth Guard, Three Levers)
-- **Combat Techniques** (Hardboiled, Precise Aim, Critical Strike, etc.)
-- **Skills** (ranks 1-6 with specialisations)
-- **Defects** (Phobia, Lazy, Vulnerability, etc.)
-- **Shock Value** (modified stun threshold)
+---
 
-The shell prompt instructs the model to enforce all mechanical constraints — including the un-softened Sixth Guard collapse, automatic Technique application, and immediate Defect triggers.
+## 🧪 Testing
+
+**829 tests, 2 skips** — the engine's rules math, economy, roster/ingest, disc registry,
+and the web-port smoke suite are all regression-locked. The per-disc splitter
+(`../scripts/split_disc_dbs.py`) exports any disc's rows from the shared DB into its own
+database, checkpoint-gated and non-destructive.
+
+---
+
+*Chronos Core v4 — a local, LLM-narrated tabletop RPG console with swappable game discs.
+The LLM narrates; Python enforces. Eleven discs boot the identical console.*
