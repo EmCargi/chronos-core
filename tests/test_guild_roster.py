@@ -49,7 +49,7 @@ class TestInitAndSettings:
 
     def test_default_settings_seeded(self, db):
         assert db.get_setting("guild_rpg")["character_label"] == "Guild Rank"
-        assert db.get_setting("shota_x_monsters")["character_label"] == "Monster Tier"
+        assert db.get_setting("besm_disc")["character_label"] == "Monster Tier"
 
     def test_register_setting_upserts(self, db):
         db.register_setting("test_realm", "Test Realm", "A sandbox", character_label="Tier")
@@ -95,9 +95,9 @@ class TestCharacterCRUD:
 
     def test_list_characters_filtered_by_setting(self, db):
         db.upsert_character("guild_rpg", CHAR, "{}", "t.json")
-        db.upsert_character("shota_x_monsters", dict(CHAR, name="Slime"), "{}", "t.json")
+        db.upsert_character("besm_disc", dict(CHAR, name="Slime"), "{}", "t.json")
         assert len(db.list_characters(setting_id="guild_rpg")) == 1
-        assert len(db.list_characters(setting_id="shota_x_monsters")) == 1
+        assert len(db.list_characters(setting_id="besm_disc")) == 1
         assert len(db.list_characters()) == 2
 
     def test_list_characters_rank_filter(self, db):
@@ -173,7 +173,7 @@ class TestSummaries:
         assert "Eira" in out and "High Elf" in out and "ACV" in out
 
     def test_roster_summary_empty_setting(self, db):
-        assert "No characters" in db.roster_summary("shota_x_monsters")
+        assert "No characters" in db.roster_summary("besm_disc")
 
     def test_roster_summary_no_setting_empty_db(self, db):
         assert "empty" in db.roster_summary()

@@ -3,7 +3,11 @@
   "THIN_MODEL": "deepseek-r1:7b",
   "DEFAULT_RULES": "besm_shell",
   "DEFAULT_SETTING": "guild_rpg",
-  "DISC_DB_DIRS": ["../demo-discs", "../guild-rpg-digital-dm", "../mha-digital-dm"],
+  "DISC_DB_DIRS": [
+    "../demo-discs",
+    "../guild-rpg-digital-dm",
+    "../mha-digital-dm"
+  ],
   "DEFAULT_SETTINGS": [
     {
       "setting_id": "guild_rpg",
@@ -11,13 +15,6 @@
       "description": "The Guild RPG campaign system: quest boards, adventurer ranks, and the Aelthar Keldor roster.",
       "default_module": "sandbox_75cp.json",
       "character_label": "Guild Rank"
-    },
-    {
-      "setting_id": "shota_x_monsters",
-      "name": "Shota x Monsters 2",
-      "description": "The Shota x Monsters 2 BESM 4e expansion: labyrinth taming, monster tiers, and town facilities.",
-      "default_module": "forest_labyrinth_v1.json",
-      "character_label": "Monster Tier"
     },
     {
       "setting_id": "my_hero_academia",

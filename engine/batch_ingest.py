@@ -109,7 +109,7 @@ def run_auto_ingest() -> dict:
         if _tier_m:
             roster_meta["rank_label"] = _tier_m.group(1).strip()
             if roster_meta["setting_id"] == DEFAULT_SETTING and DEFAULT_SETTING == "guild_rpg":
-                roster_meta["setting_id"] = "shota_x_monsters"
+                roster_meta["setting_id"] = "besm_disc"
         _cv_m = _re.search(r"\[Combat Values:\s*ACV\s*(\d+)\s*,\s*DCV\s*(\d+)\.\s*HP:?\s*(\d+)\.\s*EP:?\s*(\d+)\s*\.?\]", desc, _re.IGNORECASE)
         if _cv_m:
             roster_meta["acv"] = int(_cv_m.group(1))

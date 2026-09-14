@@ -135,7 +135,7 @@ def test_build_system_data_block_contract():
     assert out["rank_label"] == "Tier 1"
     block = out["system_block"]
     assert "[SYSTEM DATA: BESM 4E MECHANICS]" in block
-    assert "[Setting: shota_x_monsters]" in block
+    assert "[Setting: besm_disc]" in block
     assert "Body" in block and "[Combat Values:" in block
     assert block.lstrip().startswith("[SYSTEM DATA:")
 

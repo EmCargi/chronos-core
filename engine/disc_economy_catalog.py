@@ -1,6 +1,6 @@
-"""SxM1 (shota_x_monsters) economy seed catalog.
+"""BESM Disc (besm_disc) economy seed catalog.
 
-Grounded in the BESM 4e item math from the SxM1 design docs:
+Grounded in the BESM 4e item math from the BESM Disc design docs:
   - Mechanics/06_Equipment.md        (Attributes -> halve -> Item cost scaffold)
   - Mechanics/08_Item_Conversions.md (all 63 items, BESM Item Cost table)
   - Mechanics/04_Economy.md          (Gold currency, carry limits, facilities)

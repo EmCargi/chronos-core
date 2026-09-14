@@ -1,4 +1,4 @@
-"""Stage Shota x Monsters V2 cards for deterministic batch_ingest.
+"""Stage BESM Disc V2 cards for deterministic batch_ingest.
 
 Copies statted character cards from persona-etl/output/ into chronos-core/
 staging/raw/ with the canonical [SYSTEM DATA: BESM 4E MECHANICS] block
@@ -6,7 +6,7 @@ injected into the description, so batch_ingest METHOD 1 parses the compiled
 stats instead of handing them to the LLM mapper.
 
 Only cards that actually carry a Combat Profile HP value are staged — the
-lore-only SxM2 cards (no stats decoded yet) are reported and skipped rather
+lore-only BESM Disc cards (no stats decoded yet) are reported and skipped rather
 than fabricated into bogus Tier 1 rows.
 
 Idempotent & atomic: never clobbers an already-staged card, writes via

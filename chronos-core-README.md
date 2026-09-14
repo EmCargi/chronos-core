@@ -88,7 +88,7 @@ Multiverse discs (first-party, from BESM 4e Chapter 14) are the demo shipment ta
 | **Guild RPG (Aelthar Keldor)** | `guild_rpg` | `zarlen_training_grounds_v1.json` | Guild Rank | 46 chars + 16 locations + orgs — own DB (`guild-rpg-digital-dm/`) |
 | **My Hero Academia** | `my_hero_academia` | `ua_entrance_exam.json` | Hero Rank | 121 chars + 121 Quirk power packs — own DB (`mha-digital-dm/`) |
 | **Cyberpunk 2077** | `cyberpunk_2077` | `night_city_heist_v1.json` | Street Cred | 33 chars — shared shelf |
-| **Shota x Monsters (testing shelf)** | `shota_x_monsters` | `forest_labyrinth_stratum1.json` | Monster Tier | 109 chars — shared shelf, scope closed |
+| **BESM Disc (testing shelf)** | `besm_disc` | `forest_labyrinth_stratum1.json` | Monster Tier | 109 chars — shared shelf, scope closed |
 
 Plus two registered sub-settings (`guild_training_yard`, `tomoe_volcano_package`) for
 Guild RPG's extra modules. New settings register via `register_setting()` — no code
@@ -156,7 +156,7 @@ economy docs:
 3. Cards route to `staging/processed/` on success (and the roster DB is updated), or `staging/failed/` with error logs.
 
 Deterministic compilers do the stat work with **zero LLM**: `card_to_besm.py` (cards) and the
-`guild_*`/`sxm1_*` pullovers (registry sheets / bestiary markdown) build roster rows from the
+`guild_*`/`disc_*` pullovers (registry sheets / bestiary markdown) build roster rows from the
 discs' canonical sheets.
 
 ---
@@ -279,7 +279,7 @@ Router: [dev/README.md](../../README.md) · Project: [digital-dm-project README]
 
 | Sibling | Relationship |
 |---|---|
-| [demo-discs/](../demo-discs/) · [guild-rpg-digital-dm/](../guild-rpg-digital-dm/HANDOFF-guild.md) · [mha-digital-dm/](../mha-digital-dm/README.md) · [cyberpunk-digital-dm/](../cyberpunk-digital-dm/README.md) · [shota-monsters-digital-dm/](../shota-monsters-digital-dm/HANDOFF-shota.md) | The discs — each owns its vault, module, and roster DB |
+| [demo-discs/](../demo-discs/) · [guild-rpg-digital-dm/](../guild-rpg-digital-dm/HANDOFF-guild.md) · [mha-digital-dm/](../mha-digital-dm/README.md) · [cyberpunk-digital-dm/](../cyberpunk-digital-dm/README.md) · [besm-disc-digital-dm/](../besm-disc-digital-dm/HANDOFF-shota.md) | The discs — each owns its vault, module, and roster DB |
 | [persona-etl](../../persona-etl/persona-v2-readme.md) | Card factory — V2 cards feed `batch_ingest` directly |
 | [besm-loadout-forge](../../besm-loadout-forge/README.md) | Loadout factory — reviewed loadouts ingest into rosters; live `SKILL_STAT_MAP` imported from `guild_pullover` |
 | [lore-matrix](../../lore-matrix/README.md) | Upstream ETL — the Cyberpunk vault compiled into a disc here |

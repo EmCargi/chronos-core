@@ -1,10 +1,10 @@
-"""Deterministic BESM 4e sheet compiler for Shota x Monsters V2 character cards.
+"""Deterministic BESM 4e sheet compiler for BESM Disc V2 character cards.
 
 Turns a freeform SillyTavern V2 card's markdown description into a mechanical
 roster row WITHOUT an LLM. Grounds every decision in the published conversion
 material instead of model guesswork:
 
-- Tier ladder & CP budgets: "shota_x_monsters_2_besm4e_plan.md" 5-Tier Monster
+- Tier ladder & CP budgets: "besm_disc_2_besm4e_plan.md" 5-Tier Monster
   Hierarchy (Tier 1: 25-45 CP ... Tier 5: 150-250+ CP).
 - Stat ranks per tier: the beta bestiary's hand-built stat blocks (Slime 10
   ranks, Slime Prince 12, Goblin Leader 17, bosses ~30), grown sub-linearly the
@@ -24,7 +24,7 @@ import re
 
 
 # Tier detection is keyed off the game's own HP stat (the honest difficulty
-# ladder). Brackets chosen so the observed SxM1 distribution falls cleanly:
+# ladder). Brackets chosen so the observed BESM Disc distribution falls cleanly:
 # goblins/slimes/bee spirits < 260, mid-foes to 800, leaders to 2600,
 # stratum generals to 9000, bosses/archdemons above.
 TIER_HP_BRACKETS = [
@@ -180,7 +180,7 @@ def build_system_data_block(name: str, description: str,
 
     block = (
         "[SYSTEM DATA: BESM 4E MECHANICS]\n"
-        f"[Setting: shota_x_monsters]\n"
+        f"[Setting: besm_disc]\n"
         f"[Rank: Tier {tier}]\n"
         f"[Points Budget: {budget} / {budget} CP]\n"
         f"[Stats: Body {body}, Mind {mind}, Soul {soul}]\n"

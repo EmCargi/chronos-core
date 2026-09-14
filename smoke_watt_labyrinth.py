@@ -33,10 +33,10 @@ init_roster_db()
 init_economy_db()
 
 # 2. Load setting + the new labyrinth module
-setting = get_setting("shota_x_monsters")
+setting = get_setting("besm_disc")
 check("setting resolves", setting is not None,
       f"default_module={setting and setting.get('default_module')}")
-story_map, module_name = load_campaign_module("shota_x_monsters", "forest_labyrinth_stratum1.json")
+story_map, module_name = load_campaign_module("besm_disc", "forest_labyrinth_stratum1.json")
 check("labyrinth module loads", module_name == "Forest Labyrinth (First Stratum)" and len(story_map) == 6,
       f"{module_name} | {len(story_map)} nodes")
 
@@ -45,7 +45,7 @@ from engine.guild_roster import list_characters, roster_dict_to_char
 import sqlite3
 cols = ['setting_id','name','rank_label','race','points_budget','stat_body','stat_mind','stat_soul','acv','dcv','max_hp','max_ep','card_json','source_path','ingested_at','sixth_guard','structural_fault','levers','combat_techniques','skills','defects','shock_value','md_source_path','gender']
 row = sqlite3.connect("data/guild_rpg_roster.db").execute(
-    "SELECT " + ",".join(cols) + " FROM characters WHERE setting_id='shota_x_monsters' AND name='Watt'").fetchone()
+    "SELECT " + ",".join(cols) + " FROM characters WHERE setting_id='besm_disc' AND name='Watt'").fetchone()
 watt = roster_dict_to_char(dict(zip(cols, row)))
 check("Watt selectable", watt.name == "Watt" and watt.max_hp == 60,
       f"{watt.name} HP{watt.max_hp}/EP{watt.max_ep} ACV{watt.base_acv}/DCV{watt.base_dcv}")
@@ -63,7 +63,7 @@ check("encounter check resolves", "success" in res and "roll" in res,
       f"stat={rc['stat']} skill={rc['skill']} dv={rc['dv']} fail_damage={rc['fail_damage']}")
 
 # 6. Compile the shell frame with Watt's full loadout + the node
-vitals = build_vitals_with_full_loadout("shota_x_monsters", watt, "Aelthar Keldor")
+vitals = build_vitals_with_full_loadout("besm_disc", watt, "Aelthar Keldor")
 bridge = lb.LLMBridge()
 frame = bridge.compile_system_frame("besm_shell", vitals, encounter)
 check("shell carries Watt's name", "Watt" in frame)

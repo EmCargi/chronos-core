@@ -156,8 +156,8 @@ SEED_CATALOG = [
     },
 ]
 
-# SxM1 (shota_x_monsters) economy seed: all 63 items with BESM-grounded Gold prices.
-from .sxm1_economy_catalog import SEED_CATALOG_SXM1, GOLD_PER_CP
+# BESM Disc (besm_disc) economy seed: all 63 items with BESM-grounded Gold prices.
+from .disc_economy_catalog import SEED_CATALOG_SXM1, GOLD_PER_CP
 from .models import ChestLootSchema, ChestEffect
 # Module reference (NOT `from .state_manager import ACTIVE_SESSION_ID`) so the
 # value is read at call time — set_active_session_id redirects must be seen.
@@ -236,7 +236,7 @@ def init_economy_db() -> None:
             )
         """)
     seed_default_catalog()
-    seed_sxm1_economy()
+    seed_disc_economy()
     logger.info("Economy database initialized (items, wallets, inventory).")
 
 def seed_default_catalog(setting_id: str = "guild_rpg", currency: str = "silver",
@@ -268,9 +268,9 @@ def seed_default_catalog(setting_id: str = "guild_rpg", currency: str = "silver"
             ))
     logger.info(f"Seeded item catalog for setting '{setting_id}' (currency={currency}).")
 
-def seed_sxm1_economy() -> None:
-    """Seeds the shota_x_monsters economy (BESM-grounded Gold prices)."""
-    seed_default_catalog("shota_x_monsters", currency="gold", catalog=SEED_CATALOG_SXM1)
+def seed_disc_economy() -> None:
+    """Seeds the besm_disc economy (BESM-grounded Gold prices)."""
+    seed_default_catalog("besm_disc", currency="gold", catalog=SEED_CATALOG_SXM1)
 
 def fibonacci_price(item_cp: int) -> int:
     """Fibonacci silver economy: 1 CP = 100 sp, sequence 100,100,200,300,500...
@@ -333,7 +333,7 @@ def add_item(setting_id: str, item: dict, currency: str = "silver") -> None:
 
 
 def _unit(currency: str) -> str:
-    """Currency symbol for display: Gold (SxM1) vs Silver (Guild RPG)."""
+    """Currency symbol for display: Gold (BESM Disc) vs Silver (Guild RPG)."""
     return "G" if currency == "gold" else "sp"
 
 def get_item(setting_id: str, item_id: str) -> dict | None:
@@ -583,12 +583,12 @@ def loot_cap_for(chest_tier: str, stratum: int = 1) -> int:
     return base + CHEST_STRATUM_CP_STEP * max(0, (stratum or 1) - 1)
 
 def gold_price(item_cp: int, category_mult: float = 1) -> int:
-    """SxM1 Gold model (validated peddler baseline): 50 * CP * category_mult."""
+    """BESM Disc Gold model (validated peddler baseline): 50 * CP * category_mult."""
     return GOLD_PER_CP * item_cp * category_mult
 
 def currency_for_setting(setting_id: str) -> str:
-    """Per-setting currency: shota_x_monsters runs Gold, everything else silver."""
-    return "gold" if setting_id == "shota_x_monsters" else "silver"
+    """Per-setting currency: besm_disc runs Gold, everything else silver."""
+    return "gold" if setting_id == "besm_disc" else "silver"
 
 def rank_label_for_cp(item_cp: int) -> str:
     """CP → quest-rank ladder for generated items (CP-4: distinct from

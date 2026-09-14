@@ -1,4 +1,4 @@
-"""Tests for the SxM1 Bestiary pullover extractor (engine/sxm1_pullover.py).
+"""Tests for the BESM Disc Bestiary pullover extractor (engine/disc_pullover.py).
 
 All deterministic, no DB, no LLM. Covers the four design-pass rulings: data-sparse
 skip, explicit-over-derived stat parity, memo preservation, and tier->rank ladder.
@@ -12,20 +12,20 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 from engine import guild_roster as gr
-from engine.sxm1_pullover import (
+from engine.disc_pullover import (
     extract_character,
     parse_stat_block,
     synthesize_card,
     _resolve_rank,
 )
-from engine.sxm1_ingest import ingest, normalize_name
+from engine.disc_ingest import ingest, normalize_name
 
 FULL_PAGE = """# Goblin Fighter
 
-**Enemy ID:** 113 (SxM1) · **Stratum:** First · **Tier:** Common Mob
+**Enemy ID:** 113 (BESM Disc) · **Stratum:** First · **Tier:** Common Mob
 
 > A scrappy melee goblin.
-> — *Tamer's Memo (SxM1)*
+> — *Tamer's Memo (BESM Disc)*
 
 ## 📊 BESM Stat Block
 
@@ -43,7 +43,7 @@ FULL_PAGE = """# Goblin Fighter
 
 > The most basic of Goblins! Very common.
 > Fighters are very mischievous.
-> — *Tamer's Memo (weebly, SxM1)*
+> — *Tamer's Memo (weebly, BESM Disc)*
 """
 
 
@@ -118,14 +118,14 @@ def test_memo_preserved_verbatim():
     assert "The most basic of Goblins!" in p["monster_memo"]
     assert "mischievous" in p["monster_memo"]
     # The attribution line is kept verbatim, not stripped.
-    assert "Tamer's Memo (weebly, SxM1)" in p["monster_memo"]
+    assert "Tamer's Memo (weebly, BESM Disc)" in p["monster_memo"]
 
 
 def test_compact_single_row_format():
     # Pages like Blue Oni use a compact single-row stat line + CP in the heading.
     md = """# Blue Oni
 
-**Enemy ID:** 037 (SxM1) · **Stratum:** Fourth · **Tier:** Common Mob
+**Enemy ID:** 037 (BESM Disc) · **Stratum:** Fourth · **Tier:** Common Mob
 
 ## 📊 BESM Stat Block (25 CP)
 
@@ -134,7 +134,7 @@ def test_compact_single_row_format():
 ## 📖 Monster Memo
 
 > A fearsome oni!
-> — *Tamer's Memo (weebly, SxM1)*
+> — *Tamer's Memo (weebly, BESM Disc)*
 """
     p = extract_character(md)
     assert "skip" not in p, p.get("skip")
@@ -160,11 +160,11 @@ def test_synthesized_card_envelope():
     assert card["data"]["name"] == "Goblin Fighter"
     assert "SYSTEM DATA: BESM 4E MECHANICS" in card["data"]["description"]
     assert card["data"]["creator_notes"] == p["monster_memo"]
-    assert "shota_x_monsters" in card["data"]["description"]
+    assert "besm_disc" in card["data"]["description"]
 
 
 def test_duplicate_name_skipped(tmp_path):
-    from engine.sxm1_pullover import extract_file
+    from engine.disc_pullover import extract_file
     f = tmp_path / "Dup.md"
     f.write_text(FULL_PAGE, encoding="utf-8")
     f2 = tmp_path / "Dup2.md"
@@ -187,7 +187,7 @@ def tmp_roster(tmp_path, monkeypatch):
 
 def _upsert(grid, name, body=1, hp=10):
     grid.upsert_character(
-        "shota_x_monsters",
+        "besm_disc",
         {"name": name, "rank_label": "Mob", "race": "Monster", "points_budget": 25,
          "stat_body": body, "stat_mind": 1, "stat_soul": 1, "acv": 1, "dcv": 1,
          "max_hp": hp, "max_ep": hp},
@@ -221,11 +221,11 @@ def test_add_only_inserts_novel_leaves_existing(tmp_path, tmp_roster):
     assert res["updated"] == 0
 
     names = [r[0] for r in tmp_roster.get_roster_connection().execute(
-        "SELECT name FROM characters WHERE setting_id='shota_x_monsters'").fetchall()]
+        "SELECT name FROM characters WHERE setting_id='besm_disc'").fetchall()]
     assert "Goblin Fighter" in names
     assert "Jack-O'Lantern" in names
     # The existing row was NOT upgraded (still the card-derived stats).
-    ch = tmp_roster.get_character("shota_x_monsters", "Jack-O'Lantern")
+    ch = tmp_roster.get_character("besm_disc", "Jack-O'Lantern")
     assert ch["stat_body"] == 1
 
 
@@ -239,6 +239,6 @@ def test_update_existing_upgrades_overlap(tmp_path, tmp_roster):
     assert res["updated"] == 1
     assert res["inserted"] == 0
 
-    ch = tmp_roster.get_character("shota_x_monsters", "Goblin Fighter")
+    ch = tmp_roster.get_character("besm_disc", "Goblin Fighter")
     assert ch["stat_body"] == 4       # upgraded from curated Bestiary
     assert ch["max_hp"] == 30

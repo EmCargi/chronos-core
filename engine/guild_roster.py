@@ -548,7 +548,7 @@ def purge_junk_power_packs() -> int:
 
 def seed_shota_presets() -> None:
     """
-    Seeds the Shota x Monsters 2 setting with the campaign module's character
+    Seeds the BESM Disc setting with the campaign module's character
     presets so the setting has a live roster to expand later. Idempotent.
     """
     import json as _json
@@ -582,8 +582,8 @@ def seed_shota_presets() -> None:
             "max_hp": (body + soul) * 5,
             "max_ep": (mind + soul) * 5
         }
-        upsert_character("shota_x_monsters", row, _json.dumps(preset), module_path)
-    logger.info("Seeded Shota x Monsters 2 roster presets.")
+        upsert_character("besm_disc", row, _json.dumps(preset), module_path)
+    logger.info("Seeded BESM Disc roster presets.")
 
 
 def parse_greetings_from_markdown(md_text: str) -> list:

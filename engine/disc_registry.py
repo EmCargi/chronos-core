@@ -113,7 +113,7 @@ def _manifest_refresh() -> dict:
 def resolve_roster_db(setting_id: str, refresh: bool = False) -> str:
     """Return the disc DB path for `setting_id`, or the shared roster DB.
 
-    Non-disc settings (shota_x_monsters, my_hero_academia, cyberpunk_2077) and
+    Non-disc settings (besm_disc, my_hero_academia, cyberpunk_2077) and
     any setting with no disc root resolve to the shared `guild_rpg_roster.db`.
     `refresh=True` forces a manifest rebuild (splitter).
     """

@@ -1,23 +1,23 @@
-"""Deterministic SxM1 Bestiary pullover extractor.
+"""Deterministic BESM Disc Bestiary pullover extractor.
 
-Parses the canonical SxM1 stat-block pages in
-``shota-monsters-digital-dm/sxm1-besm-folder/Bestiary/*.md`` into
+Parses the canonical BESM Disc stat-block pages in
+``besm-disc-digital-dm/sxm1-besm-folder/Bestiary/*.md`` into
 ``upsert_character()`` payloads WITHOUT an LLM. Each page carries explicit
 BESM stats (Body/Mind/Soul/CV/HP/EP/CP) plus a verbatim Tamer's Memo, so this
 is a direct, deterministic compile — no rank-ladder derivation needed.
 
 Mirrors the Guild RPG pullover (`guild_pullover.py`) in spirit and shape, but
-the SxM1 source is higher-fidelity: numeric stats are explicit in the markdown,
+the BESM Disc source is higher-fidelity: numeric stats are explicit in the markdown,
 so they are used verbatim, with formula fallbacks only when a field is absent
 (Guild's explicit-over-derived precedence).
 
 Skip policy (per design-pass ruling 2026-08-21):
-- ``data-sparse`` tag anywhere in the page (the ~23 Fifth-Stratum SxM2-only
-  bosses with no SxM1 stats) -> skipped, reason logged.
+- ``data-sparse`` tag anywhere in the page (the ~23 Fifth-Stratum BESM Disc-only
+  bosses with no BESM Disc stats) -> skipped, reason logged.
 - Missing/incomplete BESM stat block (no Body/Mind/Soul rows) -> skipped.
 - Duplicate source name -> second occurrence skipped.
 
-No DB writes happen here. The dry-run CLI (`sxm1_pullover_dryrun.py`) reviews
+No DB writes happen here. The dry-run CLI (`disc_pullover_dryrun.py`) reviews
 the sweep; the actual ingest (Phase 2) wires these payloads in behind a
 safe-ingest guard so the 94 existing card-derived rows are not clobbered.
 """
@@ -26,7 +26,7 @@ import json
 import os
 import re
 
-SETTING_ID = "shota_x_monsters"
+SETTING_ID = "besm_disc"
 
 # Bestiary Tier label -> (roster rank_label, canonical CP). The explicit CP
 # Budget row in the stat block takes precedence when present; this map is the
@@ -149,7 +149,7 @@ def synthesize_card(name: str, character: dict, memo: str, tier: str) -> str:
         f"HP {character['max_hp']}. EP {character['max_ep']}.]\n"
     )
     desc = (
-        f"{sd}\n{name} — SxM1 bestiary entry (sxm1-besm-folder).\n\n"
+        f"{sd}\n{name} — BESM Disc bestiary entry (sxm1-besm-folder).\n\n"
         f"Monster Memo:\n{memo}\n"
     )
     card = {
@@ -159,7 +159,7 @@ def synthesize_card(name: str, character: dict, memo: str, tier: str) -> str:
             "description": desc,
             "creator_notes": memo,
             "creator": "sxm1-besm-folder",
-            "tags": ["SxM1", "monster", tier or ""],
+            "tags": ["BESM Disc", "monster", tier or ""],
         },
     }
     return json.dumps(card, ensure_ascii=False)
@@ -177,9 +177,9 @@ def extract_character(md_text: str, source_path: str = "") -> dict:
     if not name:
         return {"name": os.path.basename(source_path), "skip": "no title heading"}
 
-    # Ruling #1: data-sparse (SxM2-only bosses) -> explicit skip.
+    # Ruling #1: data-sparse (BESM Disc-only bosses) -> explicit skip.
     if "data-sparse" in md_text.lower():
-        return {"name": name, "skip": "data-sparse (SxM2-only, no SxM1 stats)"}
+        return {"name": name, "skip": "data-sparse (BESM Disc-only, no BESM Disc stats)"}
 
     stats = parse_stat_block(md_text)
     if not stats:

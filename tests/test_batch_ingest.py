@@ -34,7 +34,7 @@ def _write_card(raw: Path, card: dict) -> str:
 
 SYSTEM_BLOCK = (
     "[SYSTEM DATA: BESM 4E MECHANICS]\n"
-    "[Setting: shota_x_monsters]\n"
+    "[Setting: besm_disc]\n"
     "[Rank: Tier 3]\n"
     "[Points Budget: 82 / 82 CP]\n"
     "[Stats: Body 6, Mind 7, Soul 4]\n"
@@ -43,7 +43,7 @@ SYSTEM_BLOCK = (
 
 LORE_DESC = (
     "**Physical Description:** A luminous gatekeeper.\n"
-    "**Combat Profile:** Abaddon's stats are not yet decoded from SxM2.\n"
+    "**Combat Profile:** Abaddon's stats are not yet decoded from BESM Disc.\n"
 )
 
 
@@ -79,7 +79,7 @@ class TestMethod1SystemData:
         _write_card(env["raw"], _card("Candy_Shooter" if False else "Candy Shooter", desc))
         res = bi.run_auto_ingest()
         assert "Candy_Shooter_character_card.json" in res["processed"]
-        c = gr.get_character("shota_x_monsters", "Candy Shooter")
+        c = gr.get_character("besm_disc", "Candy Shooter")
         assert c["stat_body"] == 6 and c["stat_mind"] == 7 and c["stat_soul"] == 4
         assert c["acv"] == 5 and c["dcv"] == 3
         assert c["max_hp"] == 50 and c["max_ep"] == 55
@@ -132,7 +132,7 @@ class TestFailurePaths:
 
 class TestSettingDetection:
     def test_custom_setting_respected(self, env):
-        block = SYSTEM_BLOCK.replace("[Setting: shota_x_monsters]", "[Setting: test_realm]")
+        block = SYSTEM_BLOCK.replace("[Setting: besm_disc]", "[Setting: test_realm]")
         gr.register_setting("test_realm", "Test Realm", "sandbox")
         _write_card(env["raw"], _card("Candy Shooter", "**Combat Profile:**\n\n" + block))
         bi.run_auto_ingest()
@@ -141,11 +141,11 @@ class TestSettingDetection:
     def test_rank_parses_from_system_block(self, env):
         _write_card(env["raw"], _card("Slime", "**Combat Profile:**\n\n" + SYSTEM_BLOCK))
         bi.run_auto_ingest()
-        assert gr.get_character("shota_x_monsters", "Slime")["rank_label"] == "Tier 3"
+        assert gr.get_character("besm_disc", "Slime")["rank_label"] == "Tier 3"
 
     def test_power_packs_registered(self, env):
         block = SYSTEM_BLOCK + "[Power Packs: Berserk + Lifesteal + None]\n"
         _write_card(env["raw"], _card("Battle Ant", "**Combat Profile:**\n\n" + block))
         bi.run_auto_ingest()
-        packs = gr.get_character_power_packs("shota_x_monsters", "Battle Ant")
+        packs = gr.get_character_power_packs("besm_disc", "Battle Ant")
         assert [p["pack_name"] for p in packs] == ["Berserk", "Lifesteal"]

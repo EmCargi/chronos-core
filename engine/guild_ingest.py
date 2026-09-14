@@ -1,6 +1,6 @@
 """Guild RPG cast live ingest — wires the registry sheets into the roster.
 
-Mirrors ``engine/sxm1_ingest.py`` in shape: it connects the deterministic,
+Mirrors ``engine/disc_ingest.py`` in shape: it connects the deterministic,
 LLM-free registry-sheet parser (``engine/guild_pullover.py``) to the live roster
 DB via ``guild_roster.upsert_character``, behind a SAFE-INGEST guard:
 

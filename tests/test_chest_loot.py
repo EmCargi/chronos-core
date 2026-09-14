@@ -4,7 +4,7 @@ Grounding:
   * NodeSchema must carry chest/stratum/node_type into the runtime dict.
   * ChestLootSchema rejects hallucinated effect keys, sub-field-less effects,
     over-cap CP, and effects on non-consumables.
-  * Pricing stays in Python: Fibonacci silver (guild) vs gold model (SxM1).
+  * Pricing stays in Python: Fibonacci silver (guild) vs gold model (BESM Disc).
   * loot_only rows are hidden from /shop (list_catalog) but visible in inventory.
   * Deposit is a single transaction (CP-2) — no orphan item rows.
 """
@@ -73,7 +73,7 @@ class TestPricingHelpers(unittest.TestCase):
         self.assertEqual(economy.gold_price(3, 2), 300)
 
     def test_currency_for_setting(self):
-        self.assertEqual(economy.currency_for_setting("shota_x_monsters"), "gold")
+        self.assertEqual(economy.currency_for_setting("besm_disc"), "gold")
         self.assertEqual(economy.currency_for_setting("guild_rpg"), "silver")
 
     def test_rank_label_for_cp_ladder(self):
@@ -191,9 +191,9 @@ class TestDepositChestLoot(ChestLootDBTestCase):
         self.assertEqual(row["price_silver"], economy.fibonacci_price(3))  # 400 sp
         self.assertEqual(row["currency"], "silver")
 
-    def test_sxm1_deposit_is_gold(self):
+    def test_disc_deposit_is_gold(self):
         item = economy.parse_chest_loot(VALID_VALUABLE, "wooden", 1)
-        item_id = economy.deposit_chest_loot("shota_x_monsters", "Watt", item, 1)
+        item_id = economy.deposit_chest_loot("besm_disc", "Watt", item, 1)
         with sqlite3.connect(self.tmp_roster.name) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute("SELECT price_class, price_silver, currency FROM items WHERE item_id = ?",
@@ -202,12 +202,12 @@ class TestDepositChestLoot(ChestLootDBTestCase):
         self.assertEqual(row["price_class"], "priceless")
         self.assertIsNone(row["price_silver"])
 
-    def test_sxm1_consumable_priced_via_gold_model(self):
+    def test_disc_consumable_priced_via_gold_model(self):
         item = economy.parse_chest_loot(VALID_HEAL, "wooden", 1)
-        economy.deposit_chest_loot("shota_x_monsters", "Watt", item, 1)
+        economy.deposit_chest_loot("besm_disc", "Watt", item, 1)
         with sqlite3.connect(self.tmp_roster.name) as conn:
             price = conn.execute(
-                "SELECT price_silver FROM items WHERE setting_id='shota_x_monsters' AND name='Goblin Berry Tonic'"
+                "SELECT price_silver FROM items WHERE setting_id='besm_disc' AND name='Goblin Berry Tonic'"
             ).fetchone()[0]
         self.assertEqual(price, 100)  # 50 * 2 CP * 1
 

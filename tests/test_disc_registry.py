@@ -119,7 +119,7 @@ class TestManifest:
         # CP-1: even if a disc DB's settings table is polluted with all 13 rows,
         # the manifest keys off the FILENAME and maps only to its own setting.
         with sqlite3.connect(env["demo_root"] / "enid-digital-dm" / "data" / "besm_enid.db") as conn:
-            conn.execute("INSERT INTO settings (setting_id, name) VALUES ('shota_x_monsters', 'SxM')")
+            conn.execute("INSERT INTO settings (setting_id, name) VALUES ('besm_disc', 'SxM')")
         m = dr.build_disc_manifest([str(env["demo_root"])])
         assert set(m.keys()) == {"besm_enid"}
 
@@ -133,7 +133,7 @@ class TestResolve:
 
     def test_shared_setting_falls_back(self, env):
         assert dr.resolve_roster_db("my_hero_academia") == str(env["shared"])
-        assert dr.resolve_roster_db("shota_x_monsters") == str(env["shared"])
+        assert dr.resolve_roster_db("besm_disc") == str(env["shared"])
 
     def test_no_disc_root_falls_back(self, env, monkeypatch):
         monkeypatch.setattr(dr, "load_settings", lambda: {})

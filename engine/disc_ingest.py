@@ -1,6 +1,6 @@
-"""SxM1 Bestiary live ingest — Phase 2 of the true-disc roadmap.
+"""BESM Disc Bestiary live ingest — Phase 2 of the true-disc roadmap.
 
-Wires the deterministic dry-run parser (engine/sxm1_pullover.py) into the live
+Wires the deterministic dry-run parser (engine/disc_pullover.py) into the live
 roster DB via guild_roster.upsert_character, behind a SAFE-INGEST guard:
 
 - **Default (Option B — Safe Add-Only):** only Bestiary entries whose normalized
@@ -8,7 +8,7 @@ roster DB via guild_roster.upsert_character, behind a SAFE-INGEST guard:
   rows are left strictly untouched (net +8 rows: 97 -> 105).
 - **--update-existing (Option A — Canon Upsert):** overlapping entries are also
   upserted, upgrading them with the curated Bestiary stats + verbatim memos.
-- Skipped pages (data-sparse SxM2-only, missing stat block, duplicate name) never
+- Skipped pages (data-sparse BESM Disc-only, missing stat block, duplicate name) never
   touch the DB.
 - Normalized name check (strip non-alphanumerics) prevents duplicate insertion
   across punctuation/hyphen/apostrophe variants (e.g. Jack-O'Lantern).
@@ -27,9 +27,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))            # chr
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))  # dev/
 
 from engine import guild_roster
-from engine.sxm1_pullover import SETTING_ID, extract_file
+from engine.disc_pullover import SETTING_ID, extract_file
 
-DEFAULT_BASE = "../shota-monsters-digital-dm/sxm1-besm-folder/Bestiary"
+DEFAULT_BASE = "../besm-disc-digital-dm/sxm1-besm-folder/Bestiary"
 
 
 def normalize_name(name: str) -> str:
@@ -71,7 +71,7 @@ def _build_character(payload: dict) -> dict:
 
 def ingest(base: str = DEFAULT_BASE, update_existing: bool = False,
            dry_run: bool = False, setting_id: str = SETTING_ID) -> dict:
-    """Run the SxM1 Bestiary ingest against the live roster DB.
+    """Run the BESM Disc Bestiary ingest against the live roster DB.
 
     Returns a summary dict: inserted / updated / skipped / existing / errors.
     Skipped (data-sparse etc.) and existing-but-untouched rows never call
@@ -147,7 +147,7 @@ def main() -> int:
         print(json.dumps({"dry_run": args.dry_run, **summary}, indent=2))
     else:
         verb = "DRY RUN (no writes)" if args.dry_run else "INGEST"
-        print(f"[{verb}] SxM1 Bestiary -> setting '{SETTING_ID}'")
+        print(f"[{verb}] BESM Disc Bestiary -> setting '{SETTING_ID}'")
         print(f"  inserted : {summary['inserted']}")
         print(f"  updated  : {summary['updated']}")
         print(f"  existing : {summary['existing']} (untouched, add-only)")

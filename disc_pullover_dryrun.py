@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Dry-run sweep for the SxM1 Bestiary pullover.
+"""Dry-run sweep for the BESM Disc Bestiary pullover.
 
-Scans the canonical SxM1 stat-block pages, runs each through the deterministic
-extractor (engine/sxm1_pullover.py), and prints every resulting
+Scans the canonical BESM Disc stat-block pages, runs each through the deterministic
+extractor (engine/disc_pullover.py), and prints every resulting
 upsert_character() payload for review WITHOUT touching the roster DB.
 
 Use this to sanity-check the full bestiary before the real ingest: confirm
 names, tier labels, parsed stats, and memo coverage. Pages that are skipped
-(data-sparse SxM2-only bosses, missing stat blocks, duplicates) are listed with
+(data-sparse BESM Disc-only bosses, missing stat blocks, duplicates) are listed with
 their exact reason so the gap surfaces before anything is written.
 """
 
@@ -23,7 +23,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from engine.sxm1_pullover import extract_file
+from engine.disc_pullover import extract_file
 
 # The Bestiary is one monster per file; no skip-list needed (the extractor flags
 # data-sparse pages itself). Kept for parity with the Guild dry-run structure.
@@ -46,8 +46,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--base",
-        default="../shota-monsters-digital-dm/sxm1-besm-folder/Bestiary",
-        help="Root dir holding the SxM1 Bestiary markdown pages.",
+        default="../besm-disc-digital-dm/sxm1-besm-folder/Bestiary",
+        help="Root dir holding the BESM Disc Bestiary markdown pages.",
     )
     parser.add_argument(
         "--json",
@@ -78,7 +78,7 @@ def main() -> int:
             {"payloads": payloads, "skipped": skipped}, ensure_ascii=False))
         return 0
 
-    table = Table(title=f"SxM1 Bestiary Pullover — Dry Run ({len(payloads)} resolved)")
+    table = Table(title=f"BESM Disc Bestiary Pullover — Dry Run ({len(payloads)} resolved)")
     table.add_column("Name", style="bold cyan")
     table.add_column("Tier")
     table.add_column("CP")
