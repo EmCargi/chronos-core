@@ -2,7 +2,7 @@
 project: digital-dm
 date: 2026-09-13
 status: active — demo disc in planning
-test_count: 829 total = 827 pass, 2 skip, all runnable (2026-09-13)
+test_count: 829 total = 829 pass, 2 skip, all runnable (2026-09-14)
 git: "local-only, engine code scoped (2026-08-14)"
 ---
 # Chronos Core — Handoff Document
@@ -95,6 +95,7 @@ All **38 linked adventurer rows** have Character-Markdown greetings (First Messa
 | 2026-09-13 | `changelog/proposals/2026-09-13-chronos-core-per-disc-roster-db.md` | `dev-journal/2026-09-13-chronos-core-guild-per-disc-db.md` | **Guild RPG gets its own roster DB — multi-root registry.** The flagship joins the demo discs: `guild-rpg-digital-dm/data/guild_rpg.db` (188 rows: 46 chars, 85 items, 16 locations, 16 threats, 3 tournaments, Aelthar Keldor org, 12 power_packs, wallets+inventory). `disc_registry` generalized to `DISC_DB_DIRS` (list) — each root scans BOTH `root/<disc>/data/` (demo-discs layout) and `root/data/` (direct disc-folder layout); legacy single `DISC_DB_DIR` still accepted; manifest cache keyed on the root tuple. Splitter `TARGET_DISCS` map adds `guild_rpg`. **Pruned like the demo**: shared DB now holds only IP discs (263 chars: cyberpunk 33 / mha 121 / shota 109; 165 items), checkpointed. Guild DB is gitignored (confidential, consistent with the vault). **829 pass / 2 skip** (+2 multi-root tests). Live acceptance: `list_settings()` still 13 merged, guild boots 46 chars / 16 locations / Aelthar Keldor from its own DB, shota falls back to shared. | |
 | 2026-09-13 | `changelog/proposals/2026-09-13-chronos-core-per-disc-roster-db.md` | `dev-journal/2026-09-13-chronos-core-mha-per-disc-db.md` | **MHA gets its own roster DB — the lorebook→disc proof completes.** `mha-digital-dm/data/my_hero_academia.db` (253 rows: 121 chars, 121 Quirk power packs, 10 items). Splitter `TARGET_DISCS` + `DISC_DB_DIRS` add `my_hero_academia`; split → prune like the demo. Shared DB now holds only cyberpunk + shota (142 chars: cyberpunk 33 / shota 109; 155 items; 4 settings). MHA DB is gitignored (3rd-party IP). **829 pass / 2 skip** (no code change beyond config + splitter). Live acceptance: MHA boots 121 chars / 10 items from its own DB, shota falls back to shared. | |
 | 2026-09-13 | `changelog/proposals/2026-08-21-chronos-core-sxm1-true-disk.md` | `dev-journal/2026-09-13-sxm-shota-scope-closed.md` | **SxM + Shota scope CLOSED — the PoC playground retires.** Cyberpunk had 0 open loops; all 57 sxm/shota journal loops + the true-disc proposal's open steps were closed 2026-09-13 (done items marked completed; the rest retired as "the existing game is canonical"). Shota handoff status → closed; data layer (master_monsters.db, 339-card catalog, retrieval spine) stays as test/reference; `shota_x_monsters` roster remains bootable (not pruned). The engine's PoC surface (bestiary→BESM, persona-etl 339-card pipeline, pullover/ingest, First+Fifth Stratum forge) is proven and reusable — future content is first-party. | |
+| 2026-09-13 | `15148d6` | `dev-journal/2026-09-13-digital-dm-demo-milestone.md` | **Demo milestone — v4 documented, all loops closed.** Both READMEs rewritten to the current reality (11 discs, per-disc DBs, 35-command palette); 82 open loops closed (57 sxm/shota + 19 guild/org/hub + live-play acceptances); SxM/Shota scope formally retired. Lineage rows `747c333` / `7f3f463` / `9b6cfb2` cover the per-disc splits. | |
 
 ## Architecture Overview
 
@@ -108,33 +109,36 @@ chronos-core/
     ├── browser_chronos.py ── Streamlit web port (sidebar selectors + vitals HUD + chat input + full command dispatch)
     │       │
     │       ├── engine/state_manager.py ── Runtime session state (vitals, nav, chronology) + set_active_db_path()
-    │       ├── engine/guild_roster.py ── Canonical roster DB (settings, characters, power packs) + load_campaign_module/roster_dict_to_char
-    │       ├── engine/economy.py ── Items, wallets, inventory, silver price curves
+    │       ├── engine/guild_roster.py ── Roster access (settings, characters, power packs) + load_campaign_module/roster_dict_to_char
+    │       ├── engine/economy.py ── Items, wallets, inventory, silver/gold price curves
     │       ├── engine/llm_bridge.py ── Ollama dispatch + BESM field formatters + prompt compilation
     │       ├── engine/models.py ── Pydantic v2 CharacterSchema + Tri-Stat derived vitals
     │       ├── engine/batch_ingest.py ── Character card importer (staging/raw/ → processed/failed/)
     │       ├── engine/char_wizard.py ── Interactive character creator with CP-budget checks
-    │       └── engine/verify_dungeon.py ── Campaign module structural validator (5-room check)
+    │       ├── engine/disc_registry.py ── Per-disc DB resolver (setting_id → db path, multi-root DISC_DB_DIRS)
+    │       └── engine/verify_dungeon.py ── Module validator (legacy 5-room OR branching labyrinth)
     │
-    ├── config/settings.json ── LLM model, Ollama URL, default rules + setting, DISC_DB_DIR
-    ├── modules/ ── Campaign node maps (8 modules across 3 settings)
+    ├── config/settings.json ── LLM model, Ollama routing, default rules + setting, DEFAULT_SETTINGS + DISC_DB_DIRS
+    ├── modules/ ── Campaign node maps (15 modules across the 11 discs)
     ├── data/
-    │   ├── guild_rpg_roster.db ── SOURCE OF TRUTH for IP discs (settings, characters, items, wallets, inventory)
-    │   ├── chronos_session.db ── CLI runtime state only (repopulated from roster on launch)
-    │   ├── chronos_web_session.db ── Web port runtime state only (isolated from CLI — CP-2)
+    │   ├── guild_rpg_roster.db ── SHARED shelf: discs without a home repo (cyberpunk, shota) + session fallback
+    │   ├── chronos_session.db ── CLI runtime session state only (repopulated from roster on launch)
+    │   ├── chronos_web_session.db ── Web port runtime session state (isolated from CLI — CP-2)
     │   └── checkpoints/ ── Pre-migration DB snapshots
     └── staging/ ── Character card import queue (raw/ → processed/ + failed/)
 ```
 
-**Per-disc roster routing (2026-09-13):** the 7 demo discs own their roster DBs
-in the `demo-discs/` repo (`data/<setting_id>.db` — tracked there, a disc IS its
-content). `engine/disc_registry.py` resolves setting_id → db path via a lazy
-filename-keyed manifest; `set_active_setting()` re-points guild_roster + economy
-and runs schema migrations only. IP discs fall back to the shared
-`guild_rpg_roster.db` above.
+**Per-disc roster routing (2026-09-13):** filesystem-homed discs own their roster
+DBs — `demo-discs/<world>/data/<setting>.db` (tracked, a disc IS its content),
+`guild-rpg-digital-dm/data/guild_rpg.db` + `mha-digital-dm/data/my_hero_academia.db`
+(gitignored, confidential). `engine/disc_registry.py` resolves setting_id → db
+path via a lazy filename-keyed manifest across `DISC_DB_DIRS`;
+`set_active_setting()` re-points guild_roster + economy and runs schema
+migrations only. The shared `guild_rpg_roster.db` above is now the fallback
+shelf for discs without a dedicated repo (cyberpunk, shota).
 
 **Three databases, one rule:**
-- `guild_rpg_roster.db` — the canonical catalog (settings, characters [22 cols with BESM loadout], power packs, items, wallets, inventory). Survives sessions.
+- Per-disc roster DBs (+ the shared shelf) — the canonical catalogs (settings, characters [22 cols with BESM loadout], power packs, items, wallets, inventory). Survive sessions.
 - `chronos_session.db` — CLI runtime state only (current vitals, active node, narrative history). Repopulated from the roster on launch.
 - `chronos_web_session.db` — web port runtime state only, isolated so the browser dashboard never contends with a running TUI session (CP-2).
 
@@ -196,7 +200,6 @@ and runs schema migrations only. IP discs fall back to the shared
 | `tests/test_card_to_besm.py` | Card compiler tests (19: HP row/col tables, tier brackets, archetypes, stat alloc, ACV, SYSTEM DATA contract) | ~200 | 19 |
 | `tests/test_stage_cards.py` | Staging prep tests (6: discovery, idempotent injection, statted vs lore-only screening, real-corpus 94 check) | ~80 | 6 |
 | `tests/test_bond_progression.py` | Bond Progression Framework V2.0 tests (24: phases, gain/loss tables, Shared Triumph, Favoritism Tax, group stats) | ~155 | 24 |
-| `tests/test_bond_progression.py` | Bond Progression Framework V2.0 tests (24: phases, gain/loss tables, Shared Triumph, Favoritism Tax, group stats) | ~155 | 24 |
 | `tests/test_diceless.py` | Diceless BESM tests (32: TCR formula + rounding, Table-15 MoS bands, Kozoh/Azok canonical, auto-7 hedging) | ~230 | 32 |
 | `tests/test_combat_maneuvers.py` | Combat maneuvers tests (46: tactical stances, two-weapon, strike-to-wound, touch, called shots, grappling, multi-target dispersion) | ~250 | 46 |
 | `tests/test_guild_roster.py` | Roster CRUD tests (28: init/settings, character upsert + retrieval, BESM loadout, markdown greetings, power packs, summaries, threats/locations/tournaments) | ~270 | 28 |
@@ -210,12 +213,7 @@ and runs schema migrations only. IP discs fall back to the shared
 | `besm-mapper` | BESM character mapping engine (V2 card → mechanical sheet) | ~53 lines | — |
 | **`config/`** | | | |
 | `config/settings.json` | Active model, Ollama URL, default rules, default setting | 6 lines | — |
-| **`modules/`** | | | |
-| `sandbox_75cp.json` | Guild RPG: starter sandbox (75 CP) | — | — |
-| `c_rank_trial.json` | Guild RPG: C-Rank trial (75 CP) | — | — |
-| `five_room_dungeon_v1.json` | Generic 5-room dungeon template (75 CP) | — | — |
-| `forest_labyrinth_v1.json` | Shota x Monsters: Labyrinth I (50 CP) | — | — |
-| `guild_training_yard_v1.json` | Guild RPG: training yard | — | — |
+| **`modules/`** (15: validator-passed labyrinths per disc — `tavarre_outpost` (enid), `shards_tourney` (ikaris), `cathedral_waypoint`, `aerial_path` (aradia), `pilgrimage_of_bloods` (bazaroth), `ikarion_breach` (imago), `council_of_omphalos`, `zarlen_training_grounds_v1` + `guild_training_yard_v1` (guild), `ua_entrance_exam` (mha), `night_city_heist_v1` (cyberpunk), `forest_labyrinth_stratum1` (shota), `c_rank_trial`, `five_room_dungeon_v1`, `tomoe_volcano_package_v1`) | — | — |
 | `tomoe_volcano_package_v1.json` | Guild RPG: Tomoe volcano campaign | — | — |
 
 ## Schema
@@ -459,12 +457,12 @@ Chronos Core is the engine inside the **digital-dm-project**, which unifies:
 6. ~~**Archive `backfill_besm.py`**~~ ✅ Done 2026-08-14 — moved to `dev/archive/chronos-core/backfill_besm.py`
 7. ~~**Tune Nieven's narrative syntax**~~ → **Tuned 2026-08-19.** Rewritten in the roster DB: Structural Fault → **The Institutionalized Symbiont** (no self-owned will — passive dormancy when ownerless, fragile, agency outsourced to an owner); Sixth Guard → **The Chimeric Override (the Weaponized Messiah)** (redlines into the Manticore-Lion apex when his owner is threatened; the collapse is that he *enjoys* the weapon he fled — no return to the facade, penance in the dirt); Levers → **Desk Mascot Stasis / Golden Crowd-Fence / Escorted Retreat** in engine-native effect-prose. 5e/CR/D&D vocabulary purged. Live play = final confirmation.
 8. ~~**Apply Item CP pricing** to shop catalog refinement~~ → **Done 2026-08-18 + wired 2026-08-19.** Jaxon's shelf matches the AK economy docs item-for-item (catalog 8 → 10, prices regression-locked). Both tactical consumables now **run**: `use_item()` binds Beast-Repellent Powder and Flash-Powder Vial as node-scoped `scene_effects` (round-budgeted, ticked on movement, viewable via `/effects`). Optional future: bump repel's `duration_rounds` to a full night watch in the catalog + refresh the live seed.
-9. ~~**Ingest the monster cards (big opportunity)**~~ → **Shipped 2026-08-18.** `stage_cards.py` staged the 94 statted cards; live sweep ingested 94/94. Shota roster **3 → 97**. The 245 lore-only cards will flow in once SxM2 stats are decoded — just re-run `stage_cards.py`.
+9. ~~**Ingest the monster cards (big opportunity)**~~ → **Shipped 2026-08-18.** `stage_cards.py` staged the 94 statted cards; live sweep ingested 94/94. Shota roster **3 → 97**. The 235 lore-only cards flow in once SxM2 stats are decoded — just re-run `stage_cards.py`.
 10. **Promote to big rig** — once stable, Megane handles the copy
 11. **Live-play the new commands** — confirm `/maneuver`/`/diceless`/`/effects` narrations read well in a real session (the LLM director carries the prose; the engine holds the numbers)
 12. ~~**Full Guild RPG cast pullover — extractor + dry run shipped, ingest pending**~~ → **COMPLETE (2026-08-22).** `engine/guild_pullover.py` + `guild_pullover_dryrun.py` parse the whole cast (registry format, 17 tests); `engine/guild_ingest.py` (5 tests) wires it into the live roster behind the safe-ingest guard. All 38 adventurer rows are now sheet-derived (Liora's `liora-head-receptionist.md` added last); `--update-existing` makes sheets canonical. Bosses/regions/orgs remain future work.
 13. **SxM1 "true disc" — Phases 1-3 done, Phases 4-6 RETIRED (2026-09-13).** Proposal `changelog/proposals/2026-08-21-chronos-core-sxm1-true-disk.md` was the roadmap; the disc is now closed as a PoC playground (the existing game is canonical). **Phase 1 (2026-08-21):** `engine/sxm1_pullover.py` + `sxm1_pullover_dryrun.py` — 85 Bestiary monsters resolved / 18 data-sparse skipped / 0 DB writes. **Phase 2 (2026-08-21):** `engine/sxm1_ingest.py` executed (Option B add-only) — 97 → 105 rows, 0 mutations, 8 novel monsters. **Phase 2A (2026-08-23):** `--update-existing` re-run + Lion Dancer dedup + normalized-collision hardening (idempotent, 0 collisions). **Phase 3 (2026-08-23):** SxM1 economy seeded in Gold — `engine/sxm1_economy_catalog.py` (63 items) + `currency` column in `economy.py`; Gold model validated against the 4 confirmed Watt/Reo peddler prices. **First Stratum + Watt shipped 2026-09-09** (module + playable hero, scope pinned to Stratum 1). **Phases 4-6** (strata/labyrinth modules, lore-vault shell wiring, `verify_setting_pack.py`) — **retired 2026-09-13** with all 57 sxm/shota open loops. The `shota_x_monsters` roster stays bootable (data not pruned).
-14. **Web port polish — wire the `/command` palette into `browser_chronos.py`** — the V1 command handler dispatches any input to the AI Director; `/shop`, `/buy`, `/inventory`, `/diceless`, `/maneuver`, `/greetings`, `/provision` are engine-ready (all functions imported) but not yet distinct UI paths. Tabs or sidebar sub-panels per command.
+14. ~~**Web port polish — wire the `/command` palette into `browser_chronos.py`**~~ → **COMPLETE (2026-09-08)** — see #18: 30 commands wired plus `/loot`; superseded by the state-switching pass (35 total).
 15. **Web port polish — `stream: True` + `st.write_stream()`** — deferred per synthesis Q1; big-rig turns block the browser thread ~15-30s behind `st.spinner`. Live token streaming would make long turns feel instant.
 16. **Web port polish — directional node navigation (CP-5 design)** — render node exits as `st.pills` / directional buttons mirroring the TUI's cardinal movement, instead of typing node IDs into the selectbox.
 17. **Web port polish — restore session on refresh** — the app re-boots from the roster on a fresh browser session; `load_runtime_navigation()` restore from `chronos_web_session.db` would resume the last node/character.
@@ -474,8 +472,8 @@ Chronos Core is the engine inside the **digital-dm-project**, which unifies:
 21. **SxM1 Phase 4 — First Stratum shipped + playable; SCOPE PINNED to Stratum 1 (2026-09-09).** `forest_labyrinth_stratum1.json` (branching, validator-clean, shota default) + Watt (re-ingestible sheet, 18/18 smoke, live-accepted). **Megane's scope decision:** SxM1 stays limited to the First Stratum — Second/Fifth stratum modules are **deferred indefinitely**; Reo remains noted-only. The authoring→play workflow is proven and reusable; next content is likely **original** rather than SxM1 (digital-dm proven across multiple sources → pivot to original content).
 22. ~~**Live play acceptance on the big rig**~~ → **ACCEPTED (2026-09-09).** Played live from the thin client against big-rig Cydonia: Watt through the First Stratum labyrinth, everything working solidly. **The Lightning Charge loop held** — Cydonia generated charges via Electrification Ready and consumed them on Field/Shooter/Cannon through shell prose, confirming the fiction-enforced resource loop survives real narration.
 23. **~~Generative chest loot~~** → **SHIPPED (2026-09-09).** `/open` + the Pydantic Weaver pipeline, `loot_only`, stratum CP scaling, pre-dispatch lock. **Remaining:** live acceptance (open `node_06_reward` in the shota disc against big-rig Cydonia), and an optional author-pinned `contents` override for chest nodes (currently generation-only).
-24. **[ ] Build first-party demo disc from BESM 4e Chapter 14 (The Anime Multiverse)** — no third-party IP. BESM's native cosmology (Cosmic Web, Omphalos, Skeleton Keys, 6 Prime Worlds: Enid/Ikaris/Imago/Bazaroth/Cathedral/Aradia) maps directly onto the Setting Pack Contract's 5 layers (Registration, Module, Roster, Economy, Lore Vault). Use existing engine tools only: `engine/besm_catalog.py` (220 canon items), `seed_besm_catalog()` for economy from BESM gear tables, `engine/models.py` (full BESM 4e rules enforcement), BESM sourcebook templates for roster archetypes (Psycho-Frame Pilot, Archfiend, Shadow Warrior, Asrai Emissary, Skeleton Key). Each Prime World becomes a self-contained disc. The `besm_multiverse` hub setting (Cosmic Web / Omphalos) serves as the registration layer connecting all discs. Existing module format, roster rows, and `modules/*.json` structure are the output format — no new templates needed.
+24. ~~**Build first-party demo disc from BESM 4e Chapter 14 (The Anime Multiverse)**~~ → **SHIPPED (2026-09-12).** All 7 discs (6 Primes + Omphalos hub) built, each with cast + economy + labyrinth + own roster DB — see Lineage 2026-09-12 rows and the demo-milestone journal. The forge stood down by design (sources pre-statted).
 
 ---
 
-*Handoff updated 2026-09-11. Chronos Core v3 — the BESM 4e rules engine, now with **two interfaces on one engine**: the Rich TUI and a Streamlit web port (`browser_chronos.py`, launch with `chronos-ui`). 814 tests, local-only engine-scoped git. Root cleaned — session docs and greeting drafts archived. The validator passes **both** classic 5-room dungeons and branching labyrinths. **Watt** walked the First Stratum labyrinth, and the **entire Guild cast got its BESM loadouts persisted**. **Demo disc direction set**: first-party BESM 4e Chapter 14 (The Anime Multiverse) — 6 Prime Worlds (Enid/Ikaris/Imago/Bazaroth/Cathedral/Aradia) built from native BESM sourcebook material, no third-party IP. The LLM narrates; Python enforces.*
+*Handoff updated 2026-09-14. Chronos Core v4 — demo-ready console: 11 discs boot the identical engine, every filesystem-homed disc owns its roster DB, 35-command palette on both interfaces, 829 tests green. Demo-milestone journal on record; lineage hash-anchored. The LLM narrates; Python enforces.*

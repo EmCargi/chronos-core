@@ -250,10 +250,37 @@ BESM loadout**: Active Narrative Syntax, Combat Techniques, Skills, Defects, and
 
 **829 tests, 2 skips** — the engine's rules math, economy, roster/ingest, disc registry,
 and the web-port smoke suite are all regression-locked. The per-disc splitter
-(`../scripts/split_disc_dbs.py`) exports any disc's rows from the shared DB into its own
+(`../../scripts/split_disc_dbs.py`) exports any disc's rows from the shared DB into its own
 database, checkpoint-gated and non-destructive.
 
 ---
 
 *Chronos Core v4 — a local, LLM-narrated tabletop RPG console with swappable game discs.
 The LLM narrates; Python enforces. Eleven discs boot the identical console.*
+
+---
+
+## 🧭 Quick routes
+
+| Task | First opens |
+|---|---|
+| Boot the TUI | [launcher.py](launcher.py) (`venv/bin/python chronos.py` direct) |
+| Browser dashboard | `chronos-ui` ([browser_chronos.py](browser_chronos.py), LAN-openable) |
+| Where is disc X's data | [engine/disc_registry.py](engine/disc_registry.py) + `DISC_DB_DIRS` in [config/settings.json](config/settings.json) |
+| Split / prune a disc DB | [split_disc_dbs.py](../../scripts/split_disc_dbs.py) (checkpoint-gated, non-destructive) |
+| Feed cards to a roster | [stage_cards.py](stage_cards.py) → [engine/batch_ingest.py](engine/batch_ingest.py) |
+| Author a new disc | [../SETTING_PACK_CONTRACT.md](../SETTING_PACK_CONTRACT.md) (5-layer contract) |
+| Rules math | [engine/models.py](engine/models.py) (BESM enforcement) · [engine/economy.py](engine/economy.py) (pricing) |
+| Current state | [HANDOFF-chronos.md](HANDOFF-chronos.md) |
+
+## 🌐 Workspace ecosystem
+
+Router: [dev/README.md](../../README.md) · Project: [digital-dm-project README](../README.md)
+
+| Sibling | Relationship |
+|---|---|
+| [demo-discs/](../demo-discs/) · [guild-rpg-digital-dm/](../guild-rpg-digital-dm/HANDOFF-guild.md) · [mha-digital-dm/](../mha-digital-dm/README.md) · [cyberpunk-digital-dm/](../cyberpunk-digital-dm/README.md) · [shota-monsters-digital-dm/](../shota-monsters-digital-dm/HANDOFF-shota.md) | The discs — each owns its vault, module, and roster DB |
+| [persona-etl](../../persona-etl/persona-v2-readme.md) | Card factory — V2 cards feed `batch_ingest` directly |
+| [besm-loadout-forge](../../besm-loadout-forge/README.md) | Loadout factory — reviewed loadouts ingest into rosters; live `SKILL_STAT_MAP` imported from `guild_pullover` |
+| [lore-matrix](../../lore-matrix/README.md) | Upstream ETL — the Cyberpunk vault compiled into a disc here |
+| [midi-project](../../midi-project/README.md) · [shda-cli](../../shda-cli/HANDOFF-shda.md) · [aeiou-method](../../aeiou-method/readme.md) · [nme-cli](../../nme-cli/nme-readme.md) · [pave-cli](../../pave-cli/HANDOFF-pave.md) | Sibling projects — shared conventions in [AGENTS.md](../../AGENTS.md) |
